@@ -17,8 +17,16 @@
     };
   };
 
-  outputs = { self, nixpkgs, flake-utils, crane, rust-overlay }:
-    flake-utils.lib.eachDefaultSystem (system:
+  outputs =
+    {
+      self,
+      nixpkgs,
+      flake-utils,
+      crane,
+      rust-overlay,
+    }:
+    flake-utils.lib.eachDefaultSystem (
+      system:
       let
         overlays = [ (import rust-overlay) ];
         pkgs = import nixpkgs { inherit system overlays; };
@@ -46,19 +54,22 @@
         cargoArtifacts = craneLib.buildDepsOnly commonArgs;
 
         # Build the actual package
-        green = craneLib.buildPackage (commonArgs // {
-          inherit cargoArtifacts;
+        green = craneLib.buildPackage (
+          commonArgs
+          // {
+            inherit cargoArtifacts;
 
-          # Additional metadata
-          pname = "green";
-          version = "0.1.0";
+            # Additional metadata
+            pname = "green";
+            version = "0.1.0";
 
-          # Augment wrapper path if needed
-          postInstall = ''
-            wrapProgram $out/bin/green \
-              --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.openssl ]}
-          '';
-        });
+            # Augment wrapper path if needed
+            postInstall = ''
+              wrapProgram $out/bin/green \
+                --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.openssl ]}
+            '';
+          }
+        );
       in
       {
         # Expose the package
@@ -90,12 +101,20 @@
           ];
         };
       }
-    ) // {
+    )
+    // {
       # NixOS module that doesn't depend on system
-      nixosModules.default = { config, lib, pkgs, ... }:
+      nixosModules.default =
+        {
+          config,
+          lib,
+          pkgs,
+          ...
+        }:
         let
           cfg = config.services.green;
-        in {
+        in
+        {
           options.services.green = with lib; {
             enable = mkEnableOption "Ultron Discord bot";
 
@@ -118,20 +137,19 @@
               description = "Group under which Ultron runs";
             };
 
-            secretsFile = mkOption {
-              type = types.nullOr types.path;
-              default = null;
-              example = "/var/lib/green/env";
+            caPath = mkOption {
+              type = types.path;
+              example = "/var/lib/green/ca.pem";
               description = "Environment file containing Discord tokens and other secrets";
             };
 
-            port = mkOption {
-              type = types.port;
-              default = 8080;
+            address = mkOption {
+              type = types.str;
+              default = "0.0.0.0:47336";
               description = "Port to run the server on";
             };
 
-            rustLog = mkOption {
+            logLevel = mkOption {
               type = types.str;
               default = "info";
               example = "info,green=debug";
@@ -139,9 +157,10 @@
             };
 
             dataDir = mkOption {
-              type = types.str;
+              type = types.path;
               default = "/var/lib/green";
-              description = "Directory to store green data";
+              description = "Directory where the bot stores its data";
+              example = "/var/lib/green";
             };
           };
 
@@ -157,7 +176,7 @@
             };
 
             users.groups = lib.mkIf (cfg.group == "green") {
-              green = {};
+              green = { };
             };
 
             systemd.services.green = {
@@ -168,9 +187,10 @@
               serviceConfig = {
                 # Pass CLI arguments based on configuration options
                 ExecStart = ''
-                ${cfg.package}/bin/green --port ${toString cfg.port} \
-                  --rust-log ${cfg.rustLog} \
-                  --secrets ${cfg.secretsFile}
+                  ${cfg.package}/bin/green \
+                    --address ${toString cfg.port} \
+                    --log-level ${cfg.logLevel} \
+                    --ca-path ${cfg.caPath}
                 '';
                 User = cfg.user;
                 Group = cfg.group;
@@ -199,12 +219,18 @@
                 ProtectSystem = "strict";
                 ReadWritePaths = [ cfg.dataDir ];
                 RemoveIPC = true;
-                RestrictAddressFamilies = [ "AF_INET" "AF_INET6" ];
+                RestrictAddressFamilies = [
+                  "AF_INET"
+                  "AF_INET6"
+                ];
                 RestrictNamespaces = true;
                 RestrictRealtime = true;
                 RestrictSUIDSGID = true;
                 SystemCallArchitectures = "native";
-                SystemCallFilter = [ "@system-service" "~@privileged @resources" ];
+                SystemCallFilter = [
+                  "@system-service"
+                  "~@privileged @resources"
+                ];
                 UMask = "077";
               };
             };
