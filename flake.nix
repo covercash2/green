@@ -150,9 +150,9 @@
               description = "Environment file containing Discord tokens and other secrets";
             };
 
-            address = mkOption {
-              type = types.str;
-              default = "0.0.0.0:47336";
+            port = mkOption {
+              type = types.port;
+              default = 47336;
               description = "Port to run the server on";
             };
 
@@ -202,7 +202,7 @@
             };
 
             environment.etc."green/config.toml".text = ''
-              address = "${cfg.address}"
+              port = "${cfg.port}"
               log_level = "${cfg.logLevel}"
               ca_path = "${cfg.caPath}"
 

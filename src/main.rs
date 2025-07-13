@@ -90,8 +90,8 @@ pub struct Cli {
 pub struct Config {
     /// path to the CA file
     pub ca_path: PathBuf,
-    /// the host address to bind the server to
-    pub address: SocketAddr,
+    /// the port to bind the server to
+    pub port: u16,
     /// log level for the application
     #[serde(default = "default_log_level")]
     pub log_level: String,
@@ -135,7 +135,11 @@ async fn run(config: Config) -> Result<(), Error> {
 
     let app = build_router(state);
 
-    let listener = tokio::net::TcpListener::bind(config.address)
+    let address: SocketAddr = format!("0.0.0.0:{}", config.port)
+        .parse()
+        .map_err(|source| Error::InvalidAddress { source })?;
+
+    let listener = tokio::net::TcpListener::bind(address)
         .await
         .expect("Failed to bind to address");
 

@@ -18,6 +18,9 @@ pub enum Error {
         source: std::io::Error,
     },
 
+    #[error("unable to parse address")]
+    InvalidAddress { source: std::net::AddrParseError },
+
     #[error("unable to start server: {source}")]
     ServerStart { source: std::io::Error },
 
@@ -39,6 +42,7 @@ impl IntoResponse for Error {
         let status = match self {
             Error::EnvLevel { .. } | Error::FileRead { .. } => StatusCode::INTERNAL_SERVER_ERROR,
             Error::TemplateRender { .. }
+            | Error::InvalidAddress { .. }
             | Error::DeserializeConfig { .. }
             | Error::ServerStart { .. }
             | Error::SetGlobalSubscriber { .. } => StatusCode::INTERNAL_SERVER_ERROR,
