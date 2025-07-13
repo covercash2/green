@@ -163,6 +163,21 @@
               description = "The log level of the service. See: https://docs.rs/env_logger/latest/env_logger/#enabling-logging";
             };
 
+            routes = mkOption {
+              type = types.attrsOf types.str;
+              default = {
+                ultron = "ultron.green.chrash.net";
+                adguard = "adguard.green.chrash.net";
+                grafana = "grafana.green.chrash.net";
+                postgres = "db.green.chrash.net";
+                homeassistant = "hass.green.chrash.net";
+                frigate = "frigate.green.chrash.net";
+                foundry = "foundry.green.chrash.net";
+              };
+              description = "List of routes to register with the bot";
+              example = [ "ultron" "another-route" ];
+            };
+
             dataDir = mkOption {
               type = types.path;
               default = "/var/lib/green";
@@ -186,6 +201,15 @@
               green = { };
             };
 
+            environment.etc."green/config.toml".text = ''
+              address = "${cfg.address}"
+              log_level = "${cfg.logLevel}"
+              ca_path = "${cfg.caPath}"
+
+              [routes]
+              ${lib.concatStringsSep "\n" (lib.mapAttrsToList (k: v: "${k} = \"${v}\"") cfg.routes)}
+            '';
+
             systemd.services.green = {
               description = "Ultron Discord bot";
               wantedBy = [ "multi-user.target" ];
@@ -195,9 +219,7 @@
                 # Pass CLI arguments based on configuration options
                 ExecStart = ''
                   ${cfg.package}/bin/green \
-                    --address ${toString cfg.address} \
-                    --log-level ${cfg.logLevel} \
-                    --ca-path ${cfg.caPath}
+                    --config-path /etc/green/config.toml
                 '';
                 User = cfg.user;
                 Group = cfg.group;

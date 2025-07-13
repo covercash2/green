@@ -1,4 +1,4 @@
-use std::{net::SocketAddr, path::PathBuf, sync::Arc};
+use std::{collections::HashMap, net::SocketAddr, path::PathBuf, sync::Arc};
 
 use axum::{extract::State, routing::get};
 use clap::Parser;
@@ -47,14 +47,12 @@ pub struct ServerState {
 }
 
 impl ServerState {
-    async fn new(config: &Cli) -> Result<Self, Error> {
+    async fn new(config: &Config) -> Result<Self, Error> {
         let ca_content = read_file(&config.ca_path).await?;
+
         Ok(ServerState {
             certificate: Arc::from(ca_content),
-            index: Index::from(vec![
-                "foundry.green.chrash.net".to_string(),
-                Route::Certificates.as_str().to_string(),
-            ]),
+            index: Index::from(config.routes.clone()),
         })
     }
 }
@@ -83,15 +81,29 @@ async fn ca_route(State(state): State<ServerState>) -> String {
 
 #[derive(Debug, Clone, Parser)]
 pub struct Cli {
+    /// path to the config file
+    #[clap(long, default_value = "config.toml")]
+    pub config_path: PathBuf,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct Config {
     /// path to the CA file
-    #[clap(long)]
     pub ca_path: PathBuf,
     /// the host address to bind the server to
-    #[clap(long, default_value = "0.0.0.0:47336")]
     pub address: SocketAddr,
     /// log level for the application
-    #[clap(long, default_value = "info")]
+    #[serde(default = "default_log_level")]
     pub log_level: String,
+    #[serde(default)]
+    pub routes: Routes,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, derive_more::IntoIterator)]
+pub struct Routes(HashMap<String, String>);
+
+fn default_log_level() -> String {
+    "info".to_string()
 }
 
 async fn read_file(path: &PathBuf) -> Result<String, Error> {
@@ -118,7 +130,7 @@ fn setup_tracing(log_level: &str) -> Result<(), Error> {
     Ok(())
 }
 
-async fn run(config: Cli) -> Result<(), Error> {
+async fn run(config: Config) -> Result<(), Error> {
     let state = ServerState::new(&config).await?;
 
     let app = build_router(state);
@@ -139,9 +151,13 @@ async fn run(config: Cli) -> Result<(), Error> {
 async fn main() -> Result<(), Error> {
     let args = Cli::parse();
 
-    setup_tracing(&args.log_level)?;
+    let config: Config = read_file(&args.config_path).await.and_then(|content| {
+        toml::from_str(&content).map_err(|source| Error::DeserializeConfig { source })
+    })?;
 
-    tracing::info!("Starting server with args {args:?}");
+    setup_tracing(&config.log_level)?;
 
-    run(args).await
+    tracing::info!("Starting server with args {config:?}");
+
+    run(config).await
 }
