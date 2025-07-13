@@ -188,7 +188,7 @@
                 # Pass CLI arguments based on configuration options
                 ExecStart = ''
                   ${cfg.package}/bin/green \
-                    --address ${toString cfg.port} \
+                    --address ${toString cfg.address} \
                     --log-level ${cfg.logLevel} \
                     --ca-path ${cfg.caPath}
                 '';
