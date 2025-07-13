@@ -202,7 +202,7 @@
             };
 
             environment.etc."green/config.toml".text = ''
-              port = "${cfg.port}"
+              port = ${cfg.port}
               log_level = "${cfg.logLevel}"
               ca_path = "${cfg.caPath}"
 
