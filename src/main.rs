@@ -29,6 +29,9 @@ pub enum Route {
     #[serde(rename = "/api/ca")]
     #[strum(serialize = "/api/ca")]
     Certificates,
+    #[serde(rename = "/healthcheck")]
+    #[strum(serialize = "/healthcheck")]
+    HealthCheck,
 }
 
 impl Route {
@@ -60,6 +63,7 @@ fn build_router(state: ServerState) -> axum::Router {
     axum::Router::new()
         .route(Route::Home.as_str(), get(index::index))
         .route(Route::Certificates.as_str(), get(ca_route))
+        .route(Route::HealthCheck.as_str(), get(health_check))
         .layer(
             TraceLayer::new_for_http()
                 .make_span_with(|request: &axum::http::Request<_>| {
@@ -67,6 +71,10 @@ fn build_router(state: ServerState) -> axum::Router {
                 }),
             )
         .with_state(state)
+}
+
+async fn health_check() -> &'static str {
+    "OK"
 }
 
 async fn ca_route(State(state): State<ServerState>) -> String {
