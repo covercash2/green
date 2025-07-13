@@ -1,0 +1,13 @@
+address = "127.0.0.1:10000"
+ca_path = "/var/lib/mkcert/rootCA.pem"
+log_level = "info"
+
+[routes]
+foundry = "foundry.green.chrash.net"
+adguard = "adguard.green.chrash.net"
+ultron = "ultron.green.chrash.net"
+grafana = "grafana.green.chrash.net"
+frigate = "frigate.green.chrash.net"
+postgres = "db.green.chrash.net"
+homeassistant = "hass.green.chrash.net"
+
