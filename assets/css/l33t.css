@@ -1,0 +1,43 @@
+/* L33t CSS Styles */
+
+.leet-theme {
+    font-family: 'Courier New', Courier, monospace;
+    background: linear-gradient(90deg, #000000, #434343);
+    color: #00ff00;
+    animation: flicker 2s infinite;
+}
+
+.leet-theme h1 {
+    font-size: 3rem;
+    color: #00ff00;
+    text-shadow: 0 0 5px #00ff00, 0 0 20px #00ff00;
+    text-align: center;
+}
+
+.leet-theme .list-group-item {
+    background: rgba(0, 0, 0, 0.9);
+    color: #00ff00;
+    border: 1px solid #00ff00;
+    font-size: 1.2rem;
+    animation: scroll 5s linear infinite;
+}
+
+.leet-theme .list-group-item a {
+    color: #00ff00;
+    text-decoration: none;
+}
+
+.leet-theme .list-group-item a:hover {
+    text-decoration: underline;
+}
+
+@keyframes flicker {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.8; }
+}
+
+@keyframes scroll {
+    0% { transform: translateX(-100%); }
+    100% { transform: translateX(100%); }
+}
+
