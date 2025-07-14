@@ -2,7 +2,7 @@
 
 .leet-theme {
     font-family: 'Courier New', Courier, monospace;
-    background: linear-gradient(90deg, #000000, #434343);
+    background: linear-gradient(90deg, #000000, #121212);
     color: #00ff00;
     animation: flicker 2s infinite;
 }
@@ -15,9 +15,9 @@
 }
 
 .leet-theme .list-group-item {
-    background: rgba(0, 0, 0, 0.9);
+    background: rgba(18, 18, 18, 0.95);
     color: #00ff00;
-    border: 1px solid #00ff00;
+    border: 1px dashed #00ff00;
     font-size: 1.2rem;
     animation: scroll 5s linear infinite;
 }
