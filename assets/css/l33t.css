@@ -3,22 +3,24 @@
 .leet-theme {
     font-family: 'Courier New', Courier, monospace;
     background: linear-gradient(90deg, #000000, #121212);
-    color: #00ff00;
+    color: #33ff33;
+    text-shadow: 0px 0px 5px #33ff33;
     animation: flicker 2s infinite;
 }
 
 .leet-theme h1 {
     font-size: 3rem;
-    color: #00ff00;
-    text-shadow: 0 0 5px #00ff00, 0 0 20px #00ff00;
+    color: #33ff33;
+    text-shadow: 0 0 8px #33ff33, 0 0 25px #33ff33;
     text-align: center;
 }
 
 .leet-theme .list-group-item {
     background: rgba(18, 18, 18, 0.95);
-    color: #00ff00;
-    border: 1px dashed #00ff00;
+    color: #33ff33;
+    border: 1px dashed #33ff33;
     font-size: 1.2rem;
+    text-shadow: 0px 0px 4px #33ff33;
     animation: scroll 5s linear infinite;
 }
 
