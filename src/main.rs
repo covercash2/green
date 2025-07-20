@@ -7,7 +7,7 @@ use std::{
 
 use axum::{extract::State, routing::get};
 use clap::Parser;
-use io::{load_toml_file, read_file};
+use io::{load_toml_file, read_directory, read_file};
 use route::Routes;
 use serde::{Deserialize, Serialize};
 use tower_http::{services::ServeDir, trace::TraceLayer};
@@ -112,6 +112,10 @@ pub struct Cli {
     /// path to the config file
     #[clap(long, default_value = "config.toml")]
     pub config_path: PathBuf,
+
+    /// path to the assets directory
+    #[clap(long, default_value = "assets")]
+    pub assets_path: PathBuf,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -176,6 +180,15 @@ async fn run(config: Config) -> Result<(), Error> {
 #[tokio::main]
 async fn main() -> Result<(), Error> {
     let args = Cli::parse();
+
+    let assets_path = args.assets_path;
+
+    let assets_contents = read_directory(&assets_path).await?;
+
+    tracing::info!(
+        ?assets_contents,
+        "loaded assets from directory: {assets_path:?}",
+    );
 
     let config = Config::load(&args.config_path).await?;
 

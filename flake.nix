@@ -236,13 +236,16 @@
               green = { };
             };
 
-            environment.etc."green/config.toml".text = ''
-              port = ${toString cfg.port}
-              log_level = "${cfg.logLevel}"
-              ca_path = "${cfg.caPath}"
+            environment.etc = {
+              "green/config.toml".text = ''
+                port = ${toString cfg.port}
+                log_level = "${cfg.logLevel}"
+                ca_path = "${cfg.caPath}"
 
-              ${lib.concatStringsSep "\n" (lib.mapAttrsToList (k: v: "[routes.${k}]\nurl = \"${v.url}\"\ndescription = \"${v.description}\"" ) cfg.routes)}
-            '';
+                ${lib.concatStringsSep "\n" (lib.mapAttrsToList (k: v: "[routes.${k}]\nurl = \"${v.url}\"\ndescription = \"${v.description}\"" ) cfg.routes)}
+              '';
+              "green/assets".source = "${cfg.package}/assets";
+            };
 
             systemd.services.green = {
               description = "Ultron Discord bot";
@@ -254,6 +257,7 @@
                 ExecStart = ''
                   ${cfg.package}/bin/green \
                     --config-path /etc/green/config.toml
+                    --assets-path /etc/green/assets
                 '';
                 User = cfg.user;
                 Group = cfg.group;
