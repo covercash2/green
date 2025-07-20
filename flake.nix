@@ -164,7 +164,7 @@
             };
 
             routes = mkOption {
-              type = with types; submodule {
+              type = with types; attrsOf (submodule {
                 options = {
                   url = mkOption {
                     type = types.str;
@@ -175,7 +175,7 @@
                     description = "Description of the route.";
                   };
                 };
-              };
+              });
               default = {
                 ultron = {
                   url = "ultron.green.chrash.net";
