@@ -42,6 +42,7 @@
             fileset = nixpkgs.lib.fileset.unions [
               (craneLib.fileset.commonCargoSources ./.)
               (nixpkgs.lib.fileset.maybeMissing ./templates)
+              (nixpkgs.lib.fileset.maybeMissing ./assets)
             ];
           };
 
