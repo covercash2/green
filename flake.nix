@@ -256,7 +256,7 @@
                 # Pass CLI arguments based on configuration options
                 ExecStart = ''
                   ${cfg.package}/bin/green \
-                    --config-path /etc/green/config.toml
+                    --config-path /etc/green/config.toml \
                     --assets-path /etc/green/assets
                 '';
                 User = cfg.user;
