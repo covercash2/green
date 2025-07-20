@@ -8,13 +8,30 @@ askama = "0.14.0"
 axum = "0.8.4"
 clap = { version = "4.5.41", features = ["derive"] }
 derive_more = { version = "2.0.1", features = ["into_iterator"] }
+futures = "0.3.31"
 serde = { version = "1.0.219", features = ["derive"] }
 serde_json = "1.0.140"
 strum = { version = "0.27.1", features = ["derive"] }
 thiserror = "2.0.12"
-tokio = { version = "1.46.1", features = ["tracing", "rt", "rt-multi-thread", "test-util", "tokio-macros", "io-std", "net", "macros", "full"] }
+tokio = { version = "1.46.1", features = [
+  "tracing",
+  "rt",
+  "rt-multi-thread",
+  "test-util",
+  "tokio-macros",
+  "io-std",
+  "net",
+  "macros",
+  "full",
+] }
 toml = "0.9.2"
 tower = { version = "0.5.2", features = ["tokio", "tracing"] }
-tower-http = { version = "0.6.6", features = ["trace", "tracing"] }
+tower-http = { version = "0.6.6", features = ["fs", "trace", "tracing"] }
 tracing = "0.1.41"
-tracing-subscriber = { version = "0.3.19", features = ["json", "tracing", "serde", "serde_json", "env-filter"] }
+tracing-subscriber = { version = "0.3.19", features = [
+  "json",
+  "tracing",
+  "serde",
+  "serde_json",
+  "env-filter",
+] }

@@ -2,35 +2,49 @@
 
 .leet-theme {
     font-family: 'Courier New', Courier, monospace;
-    background: linear-gradient(90deg, #000000, #121212);
-    color: #33ff33;
-    text-shadow: 0px 0px 5px #33ff33;
-    animation: flicker 2s infinite;
+    background: linear-gradient(90deg, #050505, #0d0d0d);
+    color: #00ff00;
+    text-shadow: 0px 0px 8px #00ff00;
+    animation: flicker 2s infinite alternate;
 }
 
-.leet-theme h1 {
+.leet-theme .leet-h1 {
     font-size: 3rem;
-    color: #33ff33;
-    text-shadow: 0 0 8px #33ff33, 0 0 25px #33ff33;
+    color: #c678dd;
+    text-shadow: 0 0 8px #bb9af7, 0 0 25px #bb9af7;
     text-align: center;
 }
 
-.leet-theme .list-group-item {
+.leet-theme .leet-list-item {
     background: rgba(18, 18, 18, 0.95);
     color: #33ff33;
     border: 1px dashed #33ff33;
     font-size: 1.2rem;
     text-shadow: 0px 0px 4px #33ff33;
-    animation: scroll 5s linear infinite;
+    animation: scroll 0.5s linear forwards;
+    padding: 0.8rem;
+    margin: 0.5rem auto;
+    width: 50%;
 }
 
-.leet-theme .list-group-item a {
-    color: #00ff00;
+.leet-theme .leet-list-item .leet-link {
+    color: #7dcfff;
     text-decoration: none;
 }
 
-.leet-theme .list-group-item a:hover {
+.leet-theme .leet-list-item a:hover {
     text-decoration: underline;
+}
+
+.leet-theme .leet-list-item .leet-description {
+    font-size: 1rem;
+    padding-left: 20px;
+}
+
+.leet-container {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 1rem;
 }
 
 @keyframes flicker {
@@ -40,6 +54,6 @@
 
 @keyframes scroll {
     0% { transform: translateX(-100%); }
-    100% { transform: translateX(100%); }
+    50% { transform: translateX(0); }
 }
 

@@ -1,16 +1,21 @@
 <html>
 <head>
-    <title>Routes</title>
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.1/dist/css/bootstrap.min.css">
+    <title>green</title>
+
     <link rel="stylesheet" href="/assets/css/l33t.css">
+    <link rel="apple-touch-icon" sizes="180x180" href="/assets/favicon/apple-touch-icon.png">
+    <link rel="icon" type="image/png" sizes="32x32" href="/assets/favicon/favicon-32x32.png">
+    <link rel="icon" type="image/png" sizes="16x16" href="/assets/favicon/favicon-16x16.png">
+    <link rel="manifest" href="/assets/favicon/site.webmanifest">
 </head>
 <body class="leet-theme bg-dark">
-    <div class="container mt-4">
-        <h1 class="text-center text-light">routes</h1>
+    <div class="leet-container">
+        <h1 class="leet-h1">routes</h1>
         <ul class="list-group">
             {% for (name, route) in routes %}
-            <li class="list-group-item bg-secondary text-light">
-                <a href="https://{{ route }}" class="text-warning">{{ name }}</a>
+            <li class="leet-list-item">
+                <a href="https://{{ route.url }}" class="leet-link">{{ name }}</a>
+                <div class="leet-description">{{ route.description }}</div>
             </li>
             {% endfor %}
         </ul>

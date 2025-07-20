@@ -1,13 +1,32 @@
 port = 10000
-ca_path = "/var/lib/mkcert/rootCA.pem"
+ca_path = "fixtures/testCA.pem"
 log_level = "info"
 
-[routes]
-foundry = "foundry.green.chrash.net"
-adguard = "adguard.green.chrash.net"
-ultron = "ultron.green.chrash.net"
-grafana = "grafana.green.chrash.net"
-frigate = "frigate.green.chrash.net"
-postgres = "db.green.chrash.net"
-homeassistant = "hass.green.chrash.net"
+[routes.foundry]
+url = "foundry.green.chrash.net"
+description = "Foundry VTT for D&D games"
+
+[routes.ultron]
+url = "ultron.green.chrash.net"
+description = "Ultron chat server"
+
+[routes.adguard]
+url = "adguard.green.chrash.net"
+description = "AdGuard Home DNS server and ad blocking"
+
+[routes.grafana]
+url = "grafana.green.chrash.net"
+description = "Grafana for monitoring and visualization"
+
+[routes.frigate]
+url = "frigate.green.chrash.net"
+description = "Frigate NVR for camera surveillance"
+
+[routes.postgres]
+url = "db.green.chrash.net"
+description = "PostgreSQL database server"
+
+[routes.homeassistant]
+url = "homeassistant.green.chrash.net"
+description = "Home Assistant for home automation"
 

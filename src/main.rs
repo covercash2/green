@@ -1,15 +1,25 @@
-use std::{collections::HashMap, net::SocketAddr, path::PathBuf, sync::Arc};
+use std::{
+    collections::HashMap,
+    net::SocketAddr,
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 
 use axum::{extract::State, routing::get};
 use clap::Parser;
+use io::{load_toml_file, read_file};
+use route::Routes;
 use serde::{Deserialize, Serialize};
-use tower_http::trace::TraceLayer;
+use tower_http::{services::ServeDir, trace::TraceLayer};
 
 use crate::{error::Error, index::Index};
 
 mod error;
 mod index;
+mod io;
+mod route;
 
+/// Static routes for the application
 #[derive(
     Debug,
     Clone,
@@ -49,10 +59,11 @@ pub struct ServerState {
 impl ServerState {
     async fn new(config: &Config) -> Result<Self, Error> {
         let ca_content = read_file(&config.ca_path).await?;
+        let index = Index::new(config.routes.clone()).await?;
 
         Ok(ServerState {
             certificate: Arc::from(ca_content),
-            index: Index::from(config.routes.clone()),
+            index,
         })
     }
 }
@@ -62,6 +73,7 @@ fn build_router(state: ServerState) -> axum::Router {
         .route(Route::Home.as_str(), get(index::index))
         .route(Route::Certificates.as_str(), get(ca_route))
         .route(Route::HealthCheck.as_str(), get(health_check))
+        .nest_service("/assets", ServeDir::new("assets"))
         .layer(
             TraceLayer::new_for_http()
                 .make_span_with(|request: &axum::http::Request<_>| {
@@ -115,20 +127,14 @@ pub struct Config {
     pub routes: Routes,
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize, derive_more::IntoIterator)]
-pub struct Routes(HashMap<String, String>);
+impl Config {
+    pub async fn load(path: impl AsRef<Path>) -> Result<Self, Error> {
+        load_toml_file(&path.as_ref().to_path_buf()).await
+    }
+}
 
 fn default_log_level() -> String {
     "info".to_string()
-}
-
-async fn read_file(path: &PathBuf) -> Result<String, Error> {
-    tokio::fs::read_to_string(path)
-        .await
-        .map_err(|source| Error::FileRead {
-            path: path.clone(),
-            source,
-        })
 }
 
 fn setup_tracing(log_level: &str) -> Result<(), Error> {
@@ -171,13 +177,25 @@ async fn run(config: Config) -> Result<(), Error> {
 async fn main() -> Result<(), Error> {
     let args = Cli::parse();
 
-    let config: Config = read_file(&args.config_path).await.and_then(|content| {
-        toml::from_str(&content).map_err(|source| Error::DeserializeConfig { source })
-    })?;
+    let config = Config::load(&args.config_path).await?;
 
     setup_tracing(&config.log_level)?;
 
     tracing::info!("Starting server with args {config:?}");
 
     run(config).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn config_can_be_deserialized() {
+        let config_path = PathBuf::from("config.toml");
+
+        let _config = Config::load(&config_path)
+            .await
+            .expect("Failed to load config");
+    }
 }
