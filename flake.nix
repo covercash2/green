@@ -265,7 +265,7 @@
                 ExecStart = ''
                   ${cfg.package}/bin/green \
                     --config-path /etc/green/config.toml \
-                    --assets-path /etc/green/assets
+                    --assets-path /etc/static/green/assets
                 '';
                 User = cfg.user;
                 Group = cfg.group;
@@ -277,7 +277,7 @@
                 StateDirectoryMode = "0750";
 
                 # Hardening measures
-                AssertPathIsReadWrite = "/etc/green/";
+                AssertPathIsReadWrite = "/etc/static/green/";
                 CapabilityBoundingSet = "";
                 DevicePolicy = "closed";
                 LockPersonality = true;
