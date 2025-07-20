@@ -48,8 +48,6 @@
 
           buildInputs = with pkgs; [
             openssl
-            # needed for utoipa
-            curl
           ];
 
           nativeBuildInputs = with pkgs; [
@@ -71,10 +69,10 @@
             pname = "green";
             version = "0.1.0";
 
-            # Augment wrapper path if needed
-            postInstall = ''
-              wrapProgram $out/bin/green \
-                --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.openssl ]}
+            # Package assets as part of the build output
+            installPhase = ''
+              mkdir -p $out/assets
+              cp -r ./assets/* $out/assets
             '';
           }
         );
@@ -111,7 +109,6 @@
       }
     )
     // {
-      # NixOS module that doesn't depend on system
       nixosModules.default =
         {
           config,
