@@ -277,6 +277,7 @@
                 StateDirectoryMode = "0750";
 
                 # Hardening measures
+                AssertPathIsReadWrite = "/etc/green/";
                 CapabilityBoundingSet = "";
                 DevicePolicy = "closed";
                 LockPersonality = true;
