@@ -169,6 +169,12 @@ async fn run(config: Config) -> Result<(), Error> {
         .await
         .expect("Failed to bind to address");
 
+
+    tracing::info!(
+        %address,
+        "server starting",
+    );
+
     // Start the server
     axum::serve(listener, app)
         .await
