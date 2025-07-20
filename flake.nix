@@ -186,7 +186,7 @@
                   description = "PostgreSQL database route";
                 };
                 homeassistant = {
-                  url = "hass.green.chrash.net";
+                  url = "homeassistant.green.chrash.net";
                   description = "Home Assistant route";
                 };
                 frigate = {
