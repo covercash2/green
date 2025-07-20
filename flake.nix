@@ -164,18 +164,45 @@
             };
 
             routes = mkOption {
-              type = types.attrsOf types.str;
+              type = types.attrsOf (types.attrs {
+                url = types.str;
+                description = types.str;
+              });
               default = {
-                ultron = "ultron.green.chrash.net";
-                adguard = "adguard.green.chrash.net";
-                grafana = "grafana.green.chrash.net";
-                postgres = "db.green.chrash.net";
-                homeassistant = "hass.green.chrash.net";
-                frigate = "frigate.green.chrash.net";
-                foundry = "foundry.green.chrash.net";
+                ultron = {
+                  url = "ultron.green.chrash.net";
+                  description = "Main route for Ultron bot";
+                };
+                adguard = {
+                  url = "adguard.green.chrash.net";
+                  description = "AdGuard DNS route";
+                };
+                grafana = {
+                  url = "grafana.green.chrash.net";
+                  description = "Grafana monitoring dashboard";
+                };
+                postgres = {
+                  url = "db.green.chrash.net";
+                  description = "PostgreSQL database route";
+                };
+                homeassistant = {
+                  url = "hass.green.chrash.net";
+                  description = "Home Assistant route";
+                };
+                frigate = {
+                  url = "frigate.green.chrash.net";
+                  description = "Frigate for NVR and AI detection";
+                };
+                foundry = {
+                  url = "foundry.green.chrash.net";
+                  description = "Foundry Virtual Tabletop route";
+                };
               };
               description = "List of routes to register with the bot";
-              example = [ "ultron" "another-route" ];
+              example = [ {
+                url = "example.url";
+                description = "Example route description";
+              } ];
             };
 
             dataDir = mkOption {
@@ -206,8 +233,7 @@
               log_level = "${cfg.logLevel}"
               ca_path = "${cfg.caPath}"
 
-              [routes]
-              ${lib.concatStringsSep "\n" (lib.mapAttrsToList (k: v: "${k} = \"${v}\"") cfg.routes)}
+              ${lib.concatStringsSep "\n" (lib.mapAttrsToList (k: v: "[routes.${k}]\nurl = \"${v.url}\"\ndescription = \"${v.description}\"" ) cfg.routes)}
             '';
 
             systemd.services.green = {
