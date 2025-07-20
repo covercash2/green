@@ -164,9 +164,17 @@
             };
 
             routes = mkOption {
-              type = types.attrsOf {
-                url = types.str;
-                description = types.str;
+              type = with types; submodule {
+                options = {
+                  url = mkOption {
+                    type = types.str;
+                    description = "URL for the route.";
+                  };
+                  description = mkOption {
+                    type = types.str;
+                    description = "Description of the route.";
+                  };
+                };
               };
               default = {
                 ultron = {
