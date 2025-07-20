@@ -237,14 +237,22 @@
             };
 
             environment.etc = {
-              "green/config.toml".text = ''
-                port = ${toString cfg.port}
-                log_level = "${cfg.logLevel}"
-                ca_path = "${cfg.caPath}"
+              "green/config.toml" = {
+                user = cfg.user;
+                group = cfg.group;
+                text = ''
+                  port = ${toString cfg.port}
+                  log_level = "${cfg.logLevel}"
+                  ca_path = "${cfg.caPath}"
 
-                ${lib.concatStringsSep "\n" (lib.mapAttrsToList (k: v: "[routes.${k}]\nurl = \"${v.url}\"\ndescription = \"${v.description}\"" ) cfg.routes)}
-              '';
-              "green/assets".source = "${cfg.package}/assets";
+                  ${lib.concatStringsSep "\n" (lib.mapAttrsToList (k: v: "[routes.${k}]\nurl = \"${v.url}\"\ndescription = \"${v.description}\"" ) cfg.routes)}
+                '';
+              };
+              "green/assets" = {
+                user = cfg.user;
+                group = cfg.group;
+                source = "${cfg.package}/assets";
+              };
             };
 
             systemd.services.green = {
