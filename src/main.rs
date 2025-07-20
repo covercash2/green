@@ -189,16 +189,16 @@ async fn main() -> Result<(), Error> {
 
     let assets_path = args.assets_path;
 
+    let config = Config::load(&args.config_path).await?;
+
+    setup_tracing(&config.log_level)?;
+
     let assets_contents = read_directory(&assets_path).await?;
 
     tracing::info!(
         ?assets_contents,
         "loaded assets from directory: {assets_path:?}",
     );
-
-    let config = Config::load(&args.config_path).await?;
-
-    setup_tracing(&config.log_level)?;
 
     tracing::info!("Starting server with args {config:?}");
 
