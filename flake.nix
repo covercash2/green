@@ -69,10 +69,12 @@
             pname = "green";
             version = "0.1.0";
 
-            # Package assets as part of the build output
-            installPhase = ''
+            # Augment wrapper path if needed
+            postInstall = ''
+              wrapProgram $out/bin/green \
+                --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.openssl ]}
               mkdir -p $out/assets
-              cp -r ./assets/* $out/assets
+              cp -r ./assets/* $out/assets/
             '';
           }
         );
