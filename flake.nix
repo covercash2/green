@@ -42,13 +42,12 @@
             fileset = nixpkgs.lib.fileset.unions [
               (craneLib.fileset.commonCargoSources ./.)
               (nixpkgs.lib.fileset.maybeMissing ./templates)
+              (nixpkgs.lib.fileset.maybeMissing ./assets)
             ];
           };
 
           buildInputs = with pkgs; [
             openssl
-            # needed for utoipa
-            curl
           ];
 
           nativeBuildInputs = with pkgs; [
@@ -74,6 +73,8 @@
             postInstall = ''
               wrapProgram $out/bin/green \
                 --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.openssl ]}
+              mkdir -p $out/assets
+              cp -r ./assets/* $out/assets/
             '';
           }
         );
@@ -110,7 +111,6 @@
       }
     )
     // {
-      # NixOS module that doesn't depend on system
       nixosModules.default =
         {
           config,
@@ -164,45 +164,25 @@
             };
 
             routes = mkOption {
-              type = types.attrsOf {
-                url = types.str;
-                description = types.str;
-              };
-              default = {
-                ultron = {
-                  url = "ultron.green.chrash.net";
-                  description = "Main route for Ultron bot";
+              type = with types; attrsOf (submodule {
+                options = {
+                  url = mkOption {
+                    type = types.str;
+                    description = "URL for the route.";
+                  };
+                  description = mkOption {
+                    type = types.str;
+                    description = "Description of the route.";
+                  };
                 };
-                adguard = {
-                  url = "adguard.green.chrash.net";
-                  description = "AdGuard DNS route";
-                };
-                grafana = {
-                  url = "grafana.green.chrash.net";
-                  description = "Grafana monitoring dashboard";
-                };
-                postgres = {
-                  url = "db.green.chrash.net";
-                  description = "PostgreSQL database route";
-                };
-                homeassistant = {
-                  url = "homeassistant.green.chrash.net";
-                  description = "Home Assistant route";
-                };
-                frigate = {
-                  url = "frigate.green.chrash.net";
-                  description = "Frigate for NVR and AI detection";
-                };
-                foundry = {
-                  url = "foundry.green.chrash.net";
-                  description = "Foundry Virtual Tabletop route";
-                };
-              };
+              });
               description = "List of routes to register with the bot";
-              example = [ {
-                url = "example.url";
-                description = "Example route description";
-              } ];
+              example = {
+                example_route = {
+                  url = "example.url";
+                  description = "Example route description";
+                };
+              };
             };
 
             dataDir = mkOption {
@@ -228,13 +208,24 @@
               green = { };
             };
 
-            environment.etc."green/config.toml".text = ''
-              port = ${toString cfg.port}
-              log_level = "${cfg.logLevel}"
-              ca_path = "${cfg.caPath}"
+            environment.etc = {
+              "green/config.toml" = {
+                user = cfg.user;
+                group = cfg.group;
+                text = ''
+                  port = ${toString cfg.port}
+                  log_level = "${cfg.logLevel}"
+                  ca_path = "${cfg.caPath}"
 
-              ${lib.concatStringsSep "\n" (lib.mapAttrsToList (k: v: "[routes.${k}]\nurl = \"${v.url}\"\ndescription = \"${v.description}\"" ) cfg.routes)}
-            '';
+                  ${lib.concatStringsSep "\n" (lib.mapAttrsToList (k: v: "[routes.${k}]\nurl = \"${v.url}\"\ndescription = \"${v.description}\"" ) cfg.routes)}
+                '';
+              };
+              "green/assets" = {
+                user = cfg.user;
+                group = cfg.group;
+                source = "${cfg.package}/assets";
+              };
+            };
 
             systemd.services.green = {
               description = "Ultron Discord bot";
@@ -245,7 +236,8 @@
                 # Pass CLI arguments based on configuration options
                 ExecStart = ''
                   ${cfg.package}/bin/green \
-                    --config-path /etc/green/config.toml
+                    --config-path /etc/green/config.toml \
+                    --assets-path /etc/green/assets
                 '';
                 User = cfg.user;
                 Group = cfg.group;
@@ -291,5 +283,5 @@
             };
           };
         };
-    };
+      };
 }

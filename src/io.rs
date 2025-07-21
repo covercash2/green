@@ -23,6 +23,31 @@ pub async fn load_toml_file<T: DeserializeOwned>(path: impl AsRef<Path>) -> Resu
     })
 }
 
+pub async fn read_directory_recursive(path: impl AsRef<Path>) -> Result<Vec<PathBuf>, Error> {
+    let contents = read_directory(path).await?;
+
+    let subdirs: Vec<PathBuf> = contents
+        .iter()
+        .filter(|p| p.is_dir())
+        .cloned()
+        .collect::<Vec<_>>();
+
+    let files: Vec<PathBuf> = contents
+        .iter()
+        .filter(|p| p.is_file())
+        .cloned()
+        .collect();
+
+    let mut all_files = files;
+
+    for subdir in subdirs {
+        let subdir_files = Box::pin(read_directory_recursive(subdir)).await?;
+        all_files.extend(subdir_files);
+    }
+
+    Ok(all_files)
+}
+
 pub async fn read_directory(path: impl AsRef<Path>) -> Result<Vec<PathBuf>, Error> {
     let path = path.as_ref();
     let mut entries = tokio::fs::read_dir(path)
