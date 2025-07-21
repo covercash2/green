@@ -177,35 +177,6 @@
                 };
               });
               default = {
-                ultron = {
-                  url = "ultron.green.chrash.net";
-                  description = "Main route for Ultron bot";
-                };
-                adguard = {
-                  url = "adguard.green.chrash.net";
-                  description = "AdGuard DNS route";
-                };
-                grafana = {
-                  url = "grafana.green.chrash.net";
-                  description = "Grafana monitoring dashboard";
-                };
-                postgres = {
-                  url = "db.green.chrash.net";
-                  description = "PostgreSQL database route";
-                };
-                homeassistant = {
-                  url = "homeassistant.green.chrash.net";
-                  description = "Home Assistant route";
-                };
-                frigate = {
-                  url = "frigate.green.chrash.net";
-                  description = "Frigate for NVR and AI detection";
-                };
-                foundry = {
-                  url = "foundry.green.chrash.net";
-                  description = "Foundry Virtual Tabletop route";
-                };
-              };
               description = "List of routes to register with the bot";
               example = [ {
                 url = "example.url";
