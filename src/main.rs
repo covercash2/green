@@ -68,12 +68,12 @@ impl ServerState {
     }
 }
 
-fn build_router(state: ServerState) -> axum::Router {
+fn build_router(state: ServerState, assets_dir: impl AsRef<Path>) -> axum::Router {
     axum::Router::new()
         .route(Route::Home.as_str(), get(index::index))
         .route(Route::Certificates.as_str(), get(ca_route))
         .route(Route::HealthCheck.as_str(), get(health_check))
-        .nest_service("/assets", ServeDir::new("assets"))
+        .nest_service("/assets", ServeDir::new(assets_dir))
         .layer(
             TraceLayer::new_for_http()
                 .make_span_with(|request: &axum::http::Request<_>| {
@@ -156,10 +156,10 @@ fn setup_tracing(log_level: &str) -> Result<(), Error> {
     Ok(())
 }
 
-async fn run(config: Config) -> Result<(), Error> {
+async fn run(config: Config, assets_dir: impl AsRef<Path>) -> Result<(), Error> {
     let state = ServerState::new(&config).await?;
 
-    let app = build_router(state);
+    let app = build_router(state, assets_dir);
 
     let address: SocketAddr = format!("0.0.0.0:{}", config.port)
         .parse()
@@ -202,7 +202,7 @@ async fn main() -> Result<(), Error> {
 
     tracing::info!("Starting server with args {config:?}");
 
-    run(config).await
+    run(config, assets_path).await
 }
 
 #[cfg(test)]
