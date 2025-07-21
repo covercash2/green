@@ -176,12 +176,13 @@
                   };
                 };
               });
-              default = {
               description = "List of routes to register with the bot";
-              example = [ {
-                url = "example.url";
-                description = "Example route description";
-              } ];
+              example = {
+                example_route = {
+                  url = "example.url";
+                  description = "Example route description";
+                };
+              };
             };
 
             dataDir = mkOption {
@@ -283,5 +284,4 @@
           };
         };
       };
-    };
 }
