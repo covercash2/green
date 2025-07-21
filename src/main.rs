@@ -42,6 +42,9 @@ pub enum Route {
     #[serde(rename = "/healthcheck")]
     #[strum(serialize = "/healthcheck")]
     HealthCheck,
+    #[serde(rename = "/assets")]
+    #[strum(serialize = "/assets")]
+    Assets,
 }
 
 impl Route {
@@ -73,7 +76,7 @@ fn build_router(state: ServerState, assets_dir: impl AsRef<Path>) -> axum::Route
         .route(Route::Home.as_str(), get(index::index))
         .route(Route::Certificates.as_str(), get(ca_route))
         .route(Route::HealthCheck.as_str(), get(health_check))
-        .nest_service("/assets", ServeDir::new(assets_dir))
+        .nest_service(Route::Assets.as_str(), ServeDir::new(assets_dir))
         .layer(
             TraceLayer::new_for_http()
                 .make_span_with(|request: &axum::http::Request<_>| {
@@ -168,7 +171,6 @@ async fn run(config: Config, assets_dir: impl AsRef<Path>) -> Result<(), Error> 
     let listener = tokio::net::TcpListener::bind(address)
         .await
         .expect("Failed to bind to address");
-
 
     tracing::info!(
         %address,
