@@ -265,7 +265,7 @@
                 ExecStart = ''
                   ${cfg.package}/bin/green \
                     --config-path /etc/green/config.toml \
-                    --assets-path /etc/static/green/assets
+                    --assets-path /etc/green/assets
                 '';
                 User = cfg.user;
                 Group = cfg.group;
@@ -273,41 +273,40 @@
                 RestartSec = "10";
 
                 # Data directory
-                # StateDirectory = baseNameOf cfg.dataDir;
-                # StateDirectoryMode = "0750";
+                StateDirectory = baseNameOf cfg.dataDir;
+                StateDirectoryMode = "0750";
 
                 # Hardening measures
-                # AssertPathIsReadWrite = "/etc/static/green/";
-                # CapabilityBoundingSet = "";
-                # DevicePolicy = "closed";
-                # LockPersonality = true;
-                # MemoryDenyWriteExecute = true;
-                # NoNewPrivileges = true;
-                # PrivateDevices = true;
-                # PrivateTmp = true;
-                # ProtectClock = true;
-                # ProtectControlGroups = true;
-                # ProtectHome = true;
-                # ProtectHostname = true;
-                # ProtectKernelLogs = true;
-                # ProtectKernelModules = true;
-                # ProtectKernelTunables = true;
-                # ProtectSystem = "strict";
-                # ReadWritePaths = [ cfg.dataDir ];
-                # RemoveIPC = true;
-                # RestrictAddressFamilies = [
-                #   "AF_INET"
-                #   "AF_INET6"
-                # ];
-                # RestrictNamespaces = true;
-                # RestrictRealtime = true;
-                # RestrictSUIDSGID = true;
-                # SystemCallArchitectures = "native";
-                # SystemCallFilter = [
-                #   "@system-service"
-                #   "~@privileged @resources"
-                # ];
-                # UMask = "077";
+                CapabilityBoundingSet = "";
+                DevicePolicy = "closed";
+                LockPersonality = true;
+                MemoryDenyWriteExecute = true;
+                NoNewPrivileges = true;
+                PrivateDevices = true;
+                PrivateTmp = true;
+                ProtectClock = true;
+                ProtectControlGroups = true;
+                ProtectHome = true;
+                ProtectHostname = true;
+                ProtectKernelLogs = true;
+                ProtectKernelModules = true;
+                ProtectKernelTunables = true;
+                ProtectSystem = "strict";
+                ReadWritePaths = [ cfg.dataDir ];
+                RemoveIPC = true;
+                RestrictAddressFamilies = [
+                  "AF_INET"
+                  "AF_INET6"
+                ];
+                RestrictNamespaces = true;
+                RestrictRealtime = true;
+                RestrictSUIDSGID = true;
+                SystemCallArchitectures = "native";
+                SystemCallFilter = [
+                  "@system-service"
+                  "~@privileged @resources"
+                ];
+                UMask = "077";
               };
             };
           };
