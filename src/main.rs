@@ -7,7 +7,7 @@ use std::{
 
 use axum::{extract::State, routing::get};
 use clap::Parser;
-use io::{load_toml_file, read_directory, read_file};
+use io::{load_toml_file, read_directory, read_directory_recursive, read_file};
 use route::Routes;
 use serde::{Deserialize, Serialize};
 use tower_http::{services::ServeDir, trace::TraceLayer};
@@ -193,7 +193,7 @@ async fn main() -> Result<(), Error> {
 
     setup_tracing(&config.log_level)?;
 
-    let assets_contents = read_directory(&assets_path).await?;
+    let assets_contents = read_directory_recursive(&assets_path).await?;
 
     tracing::info!(
         ?assets_contents,
