@@ -1,23 +1,28 @@
 use std::{
-    collections::HashMap,
     net::SocketAddr,
     path::{Path, PathBuf},
     sync::Arc,
+    time::Duration,
 };
 
-use axum::{extract::State, routing::get};
+use axum::{
+    extract::State,
+    routing::{get, post},
+};
 use clap::Parser;
 use io::{load_toml_file, read_file};
 use route::Routes;
 use serde::{Deserialize, Serialize};
 use tower_http::{services::ServeDir, trace::TraceLayer};
 
-use crate::{error::Error, index::Index};
+use crate::{error::Error, index::Index, ultron::Ultron};
 
+mod deployments;
 mod error;
 mod index;
 mod io;
 mod route;
+mod ultron;
 
 /// Static routes for the application
 #[derive(
@@ -52,6 +57,7 @@ impl Route {
 
 #[derive(Debug, Clone)]
 pub struct ServerState {
+    pub ultron: Arc<Ultron>,
     pub certificate: Arc<str>,
     pub index: Index,
 }
@@ -60,10 +66,18 @@ impl ServerState {
     async fn new(config: &Config) -> Result<Self, Error> {
         let ca_content = read_file(&config.ca_path).await?;
         let index = Index::new(config.routes.clone()).await?;
+        let client = reqwest::ClientBuilder::new()
+            .danger_accept_invalid_certs(true)
+            .timeout(Duration::from_secs(10))
+            .build()
+            .map_err(Error::HttpClientBuild)?;
+
+        let ultron: Arc<Ultron> = Ultron::new(client, "debug".into()).into();
 
         Ok(ServerState {
             certificate: Arc::from(ca_content),
             index,
+            ultron,
         })
     }
 }
@@ -73,6 +87,7 @@ fn build_router(state: ServerState) -> axum::Router {
         .route(Route::Home.as_str(), get(index::index))
         .route(Route::Certificates.as_str(), get(ca_route))
         .route(Route::HealthCheck.as_str(), get(health_check))
+        .route("/webhook", post(deployments::webhook))
         .nest_service("/assets", ServeDir::new("assets"))
         .layer(
             TraceLayer::new_for_http()
@@ -84,27 +99,11 @@ fn build_router(state: ServerState) -> axum::Router {
 }
 
 async fn health_check() -> &'static str {
-    r#"
-░█▀█░█░█░█▀▀░█░░░▀█▀░█░█░█▀▄░█▀▀
-░█░█░█░█░█░█░█░░░░█░░█░█░█▀▄░▀▀█
-░▀▀▀░▀▀▀░▀▀▀░▀▀▀░░▀░░▀▀▀░▀░▀░▀▀▀
-
-SYSTEM STATUS: ONLINE
-"#
+    r#"SYSTEM STATUS: ONLINE"#
 }
 
 async fn ca_route(State(state): State<ServerState>) -> String {
-    format!(
-        r#"
-░█▀█░█▀▀░█░█░█▀▀░▀█▀░█▀▄░█▀▀░█▀▀░█▀▀
-░█▀▀░█░█░█░█░▀▀█░░█░░█▀▄░█▀▀░█▀▀░▀▀█
-░▀░░░▀▀▀░▀▀▀░▀▀▀░░▀░░▀░▀░▀▀▀░▀▀▀░▀▀▀
-
-H3R3'5 Y0UR C3RT1F1C4T3:
-{}
-"#,
-        state.certificate
-    )
+    format!("H3R3'5 Y0UR C3RT1F1C4T3:\n\n{}", state.certificate)
 }
 
 #[derive(Debug, Clone, Parser)]

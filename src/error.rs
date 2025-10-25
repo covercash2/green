@@ -12,6 +12,9 @@ pub enum Error {
         source: toml::de::Error,
     },
 
+    #[error("unable to build HTTP client: {0}")]
+    HttpClientBuild(reqwest::Error),
+
     #[error("unable to parse log level")]
     EnvLevel { source: ParseError },
 
@@ -50,6 +53,7 @@ impl IntoResponse for Error {
         tracing::error!(error = %self, "a bad happened :(");
         let status = match self {
             Error::EnvLevel { .. }
+            | Error::HttpClientBuild(_)
             | Error::DirectoryRead { .. }
             | Error::FileRead { .. }
             | Error::DeserializeTomlFile { .. }

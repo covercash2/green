@@ -11,9 +11,16 @@ export def "green index" [
 export def "green ca" [
   address: string@addresses = $LOCAL_ADDRESS
 ] {
-  http get $"($address)/ca"
+  let endpoint = $"($address)/ca"
+
+  print $"Fetching CA from ($endpoint)"
+
+  (http get $endpoint
+    --allow-errors
+    --full
+  )
 }
 
 def addresses [] {
-  [$LOCAL_ADDRESS]
+  [$LOCAL_ADDRESS "http://home.green.chrash.net"]
 }

@@ -1,6 +1,6 @@
 port = 10000
 ca_path = "fixtures/testCA.pem"
-log_level = "info"
+log_level = "info,green=debug,axum=debug"
 
 [routes.foundry]
 url = "foundry.green.chrash.net"
