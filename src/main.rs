@@ -22,6 +22,7 @@ mod error;
 mod index;
 mod io;
 mod route;
+mod text;
 mod ultron;
 
 /// Static routes for the application

@@ -10,6 +10,7 @@ clap = { version = "4.5.41", features = ["derive"] }
 derive_more = { version = "2.0.1", features = ["into_iterator"] }
 futures = "0.3.31"
 git2 = "0.20.2"
+regex = "1.12.2"
 reqwest = { version = "0.12.24", features = ["json", "rustls-tls"] }
 serde = { version = "1.0.219", features = ["derive", "rc"] }
 serde_json = "1.0.140"
@@ -39,3 +40,7 @@ tracing-subscriber = { version = "0.3.19", features = [
   "env-filter",
 ] }
 url = { version = "2.5.7", features = ["serde"] }
+
+[dev-dependencies]
+insta = { version = "1.43.2", features = ["json", "toml", "redactions"] }
+tracing-test = "0.2.5"

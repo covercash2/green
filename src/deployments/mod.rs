@@ -2,8 +2,9 @@
 //! doing my own CD because i'm stupid like that.
 //!
 //! TODO:
-//! - implement GitHub webhook
 //! - on push to main, build flake
+//!   - update rev in flake.nix?
+//!   - full system update?
 //! - check healthcheck endpoint
 //! - check status of ultron systemd service
 
@@ -12,6 +13,7 @@ use std::sync::Arc;
 use crate::{deployments::github::WebhookPayload, ultron::Ultron};
 
 mod github;
+mod nix;
 
 /// path to the system flake
 const FLAKE_PATH: &str = "~/.local/share/chezmoi/nixos/flake.nix";
