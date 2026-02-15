@@ -84,27 +84,11 @@ fn build_router(state: ServerState) -> axum::Router {
 }
 
 async fn health_check() -> &'static str {
-    r#"
-░█▀█░█░█░█▀▀░█░░░▀█▀░█░█░█▀▄░█▀▀
-░█░█░█░█░█░█░█░░░░█░░█░█░█▀▄░▀▀█
-░▀▀▀░▀▀▀░▀▀▀░▀▀▀░░▀░░▀▀▀░▀░▀░▀▀▀
-
-SYSTEM STATUS: ONLINE
-"#
+    r#"SYSTEM STATUS: ONLINE"#
 }
 
 async fn ca_route(State(state): State<ServerState>) -> String {
-    format!(
-        r#"
-░█▀█░█▀▀░█░█░█▀▀░▀█▀░█▀▄░█▀▀░█▀▀░█▀▀
-░█▀▀░█░█░█░█░▀▀█░░█░░█▀▄░█▀▀░█▀▀░▀▀█
-░▀░░░▀▀▀░▀▀▀░▀▀▀░░▀░░▀░▀░▀▀▀░▀▀▀░▀▀▀
-
-H3R3'5 Y0UR C3RT1F1C4T3:
-{}
-"#,
-        state.certificate
-    )
+    format!("{}", state.certificate)
 }
 
 #[derive(Debug, Clone, Parser)]
