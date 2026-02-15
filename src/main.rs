@@ -7,7 +7,7 @@ use std::{
 
 use axum::{extract::State, routing::get};
 use clap::Parser;
-use io::{load_toml_file, read_file};
+use io::{load_toml_file, read_directory, read_directory_recursive, read_file};
 use route::Routes;
 use serde::{Deserialize, Serialize};
 use tower_http::{services::ServeDir, trace::TraceLayer};
@@ -42,6 +42,9 @@ pub enum Route {
     #[serde(rename = "/healthcheck")]
     #[strum(serialize = "/healthcheck")]
     HealthCheck,
+    #[serde(rename = "/assets")]
+    #[strum(serialize = "/assets")]
+    Assets,
 }
 
 impl Route {
@@ -68,12 +71,12 @@ impl ServerState {
     }
 }
 
-fn build_router(state: ServerState) -> axum::Router {
+fn build_router(state: ServerState, assets_dir: impl AsRef<Path>) -> axum::Router {
     axum::Router::new()
         .route(Route::Home.as_str(), get(index::index))
         .route(Route::Certificates.as_str(), get(ca_route))
         .route(Route::HealthCheck.as_str(), get(health_check))
-        .nest_service("/assets", ServeDir::new("assets"))
+        .nest_service(Route::Assets.as_str(), ServeDir::new(assets_dir))
         .layer(
             TraceLayer::new_for_http()
                 .make_span_with(|request: &axum::http::Request<_>| {
@@ -96,6 +99,10 @@ pub struct Cli {
     /// path to the config file
     #[clap(long, default_value = "config.toml")]
     pub config_path: PathBuf,
+
+    /// path to the assets directory
+    #[clap(long, default_value = "assets")]
+    pub assets_path: PathBuf,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -136,10 +143,10 @@ fn setup_tracing(log_level: &str) -> Result<(), Error> {
     Ok(())
 }
 
-async fn run(config: Config) -> Result<(), Error> {
+async fn run(config: Config, assets_dir: impl AsRef<Path>) -> Result<(), Error> {
     let state = ServerState::new(&config).await?;
 
-    let app = build_router(state);
+    let app = build_router(state, assets_dir);
 
     let address: SocketAddr = format!("0.0.0.0:{}", config.port)
         .parse()
@@ -148,6 +155,11 @@ async fn run(config: Config) -> Result<(), Error> {
     let listener = tokio::net::TcpListener::bind(address)
         .await
         .expect("Failed to bind to address");
+
+    tracing::info!(
+        %address,
+        "server starting",
+    );
 
     // Start the server
     axum::serve(listener, app)
@@ -161,13 +173,22 @@ async fn run(config: Config) -> Result<(), Error> {
 async fn main() -> Result<(), Error> {
     let args = Cli::parse();
 
+    let assets_path = args.assets_path;
+
     let config = Config::load(&args.config_path).await?;
 
     setup_tracing(&config.log_level)?;
 
+    let assets_contents = read_directory_recursive(&assets_path).await?;
+
+    tracing::info!(
+        ?assets_contents,
+        "loaded assets from directory: {assets_path:?}",
+    );
+
     tracing::info!("Starting server with args {config:?}");
 
-    run(config).await
+    run(config, assets_path).await
 }
 
 #[cfg(test)]
