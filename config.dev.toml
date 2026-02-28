@@ -1,7 +1,7 @@
-port = 10000
+port = 10001
 ca_path = "fixtures/testCA.pem"
 breaker_path = "fixtures/breaker_box.md"
-log_level = "info"
+log_level = "debug"
 
 [routes.foundry]
 url = "foundry.green.chrash.net"
@@ -30,4 +30,3 @@ description = "PostgreSQL database server"
 [routes.homeassistant]
 url = "homeassistant.green.chrash.net"
 description = "Home Assistant for home automation"
-
