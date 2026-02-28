@@ -1,5 +1,4 @@
 use std::{
-    collections::HashMap,
     net::SocketAddr,
     path::{Path, PathBuf},
     sync::Arc,
@@ -42,6 +41,9 @@ pub enum Route {
     #[serde(rename = "/healthcheck")]
     #[strum(serialize = "/healthcheck")]
     HealthCheck,
+    #[serde(rename = "/breaker")]
+    #[strum(serialize = "/breaker")]
+    BreakerBox,
 }
 
 impl Route {
@@ -53,16 +55,19 @@ impl Route {
 #[derive(Debug, Clone)]
 pub struct ServerState {
     pub certificate: Arc<str>,
+    pub breaker_content: Arc<str>,
     pub index: Index,
 }
 
 impl ServerState {
     async fn new(config: &Config) -> Result<Self, Error> {
         let ca_content = read_file(&config.ca_path).await?;
+        let breaker_content = read_file(&config.breaker_path).await?;
         let index = Index::new(config.routes.clone()).await?;
 
         Ok(ServerState {
             certificate: Arc::from(ca_content),
+            breaker_content: Arc::from(breaker_content),
             index,
         })
     }
@@ -73,6 +78,7 @@ fn build_router(state: ServerState) -> axum::Router {
         .route(Route::Home.as_str(), get(index::index))
         .route(Route::Certificates.as_str(), get(ca_route))
         .route(Route::HealthCheck.as_str(), get(health_check))
+        .route(Route::BreakerBox.as_str(), get(breaker_route))
         .nest_service("/assets", ServeDir::new("assets"))
         .layer(
             TraceLayer::new_for_http()
@@ -91,6 +97,10 @@ async fn ca_route(State(state): State<ServerState>) -> String {
     format!("{}", state.certificate)
 }
 
+async fn breaker_route(State(state): State<ServerState>) -> String {
+    format!("{}", state.breaker_content)
+}
+
 #[derive(Debug, Clone, Parser)]
 pub struct Cli {
     /// path to the config file
@@ -102,6 +112,8 @@ pub struct Cli {
 pub struct Config {
     /// path to the CA file
     pub ca_path: PathBuf,
+    /// path to the breaker box markdown file
+    pub breaker_path: PathBuf,
     /// the port to bind the server to
     pub port: u16,
     /// log level for the application
