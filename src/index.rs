@@ -7,6 +7,7 @@ use crate::{error::Error, route::RouteInfo, Routes, ServerState};
 #[template(path = "index.html")]
 pub struct Index {
     pub routes: Vec<(String, RouteInfo)>,
+    pub version: &'static str,
 }
 
 impl Index {
@@ -17,7 +18,7 @@ impl Index {
             routes
         };
 
-        Ok(Index { routes })
+        Ok(Index { routes, version: crate::VERSION })
     }
 }
 

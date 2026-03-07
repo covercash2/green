@@ -13,10 +13,13 @@ use tower_http::{services::ServeDir, trace::TraceLayer};
 
 use crate::{error::Error, index::Index};
 
+mod breaker;
 mod error;
 mod index;
 mod io;
 mod route;
+
+pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+", env!("GIT_HASH"));
 
 /// Static routes for the application
 #[derive(
@@ -55,19 +58,19 @@ impl Route {
 #[derive(Debug, Clone)]
 pub struct ServerState {
     pub certificate: Arc<str>,
-    pub breaker_content: Arc<str>,
+    pub breaker_page: Arc<breaker::BreakerPage>,
     pub index: Index,
 }
 
 impl ServerState {
     async fn new(config: &Config) -> Result<Self, Error> {
         let ca_content = read_file(&config.ca_path).await?;
-        let breaker_content = read_file(&config.breaker_path).await?;
+        let breaker_markdown = read_file(&config.breaker_path).await?;
         let index = Index::new(config.routes.clone()).await?;
 
         Ok(ServerState {
             certificate: Arc::from(ca_content),
-            breaker_content: Arc::from(breaker_content),
+            breaker_page: Arc::new(breaker::BreakerPage::new(&breaker_markdown)),
             index,
         })
     }
@@ -78,7 +81,7 @@ fn build_router(state: ServerState) -> axum::Router {
         .route(Route::Home.as_str(), get(index::index))
         .route(Route::Certificates.as_str(), get(ca_route))
         .route(Route::HealthCheck.as_str(), get(health_check))
-        .route(Route::BreakerBox.as_str(), get(breaker_route))
+        .route(Route::BreakerBox.as_str(), get(breaker::breaker_route))
         .nest_service("/assets", ServeDir::new("assets"))
         .layer(
             TraceLayer::new_for_http()
@@ -97,9 +100,6 @@ async fn ca_route(State(state): State<ServerState>) -> String {
     format!("{}", state.certificate)
 }
 
-async fn breaker_route(State(state): State<ServerState>) -> String {
-    format!("{}", state.breaker_content)
-}
 
 #[derive(Debug, Clone, Parser)]
 pub struct Cli {
