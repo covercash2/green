@@ -1,4 +1,4 @@
-port = 10001
+port = 10000
 ca_path = "fixtures/testCA.pem"
 breaker_path = "fixtures/breaker_box.md"
 log_level = "debug"

@@ -1,24 +1,19 @@
-<html>
-<head>
-    <title>green</title>
+{% extends "base.html" %}
 
-    <link rel="stylesheet" href="/assets/css/l33t.css">
-    <link rel="apple-touch-icon" sizes="180x180" href="/assets/favicon/apple-touch-icon.png">
-    <link rel="icon" type="image/png" sizes="32x32" href="/assets/favicon/favicon-32x32.png">
-    <link rel="icon" type="image/png" sizes="16x16" href="/assets/favicon/favicon-16x16.png">
-    <link rel="manifest" href="/assets/favicon/site.webmanifest">
-</head>
-<body class="leet-theme bg-dark">
-    <div class="leet-container">
-        <h1 class="leet-h1">routes</h1>
-        <ul class="list-group">
-            {% for (name, route) in routes %}
-            <li class="leet-list-item">
-                <a href="https://{{ route.url }}" class="leet-link">{{ name }}</a>
-                <div class="leet-description">{{ route.description }}</div>
-            </li>
-            {% endfor %}
-        </ul>
-    </div>
-</body>
-</html>
+{% block title %}green{% endblock %}
+
+{% block content %}
+<h1 class="leet-h1">routes</h1>
+<ul class="list-group">
+    <li class="leet-list-item">
+        <a href="/breaker" class="leet-link">breaker box</a>
+        <div class="leet-description">Electrical circuit layout</div>
+    </li>
+    {% for (name, route) in routes %}
+    <li class="leet-list-item">
+        <a href="https://{{ route.url }}" class="leet-link">{{ name }}</a>
+        <div class="leet-description">{{ route.description }}</div>
+    </li>
+    {% endfor %}
+</ul>
+{% endblock %}
