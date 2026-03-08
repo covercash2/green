@@ -17,6 +17,7 @@ mod breaker;
 mod error;
 mod index;
 mod io;
+mod qr;
 mod route;
 
 pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+", env!("GIT_HASH"));
@@ -47,6 +48,14 @@ pub enum Route {
     #[serde(rename = "/breaker")]
     #[strum(serialize = "/breaker")]
     BreakerBox,
+
+    #[serde(rename = "/api/qr")]
+    #[strum(serialize = "/api/qr")]
+    Qr,
+
+    #[serde(rename = "/qr")]
+    #[strum(serialize = "/qr")]
+    QrPage,
 }
 
 impl Route {
@@ -82,6 +91,8 @@ fn build_router(state: ServerState) -> axum::Router {
         .route(Route::Certificates.as_str(), get(ca_route))
         .route(Route::HealthCheck.as_str(), get(health_check))
         .route(Route::BreakerBox.as_str(), get(breaker::breaker_route))
+        .route(Route::Qr.as_str(), axum::routing::post(qr::qr_route))
+        .route(Route::QrPage.as_str(), get(qr::qr_page_route))
         .nest_service("/assets", ServeDir::new("assets"))
         .layer(
             TraceLayer::new_for_http()
