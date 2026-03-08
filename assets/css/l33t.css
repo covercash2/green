@@ -14,8 +14,8 @@
 
 .leet-theme {
     font-family: var(--font-mono);
-    background-color: var(--color-bg);
     background: linear-gradient(90deg, var(--color-bg), #0d0d0d);
+    background-color: var(--color-bg);
     color: var(--color-fg);
     text-shadow: 0px 0px 8px var(--color-fg);
     animation: flicker 2s infinite alternate;
@@ -33,6 +33,12 @@
 }
 
 /* --- Index page --- */
+
+.list-group {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
 
 .leet-h1 {
     font-size: 3rem;
@@ -193,6 +199,7 @@
     font-size: 0.85rem;
     min-height: 2rem;
     margin: 0.15rem 0;
+    min-width: 0;
 }
 
 .breaker-slot-left {
@@ -234,6 +241,57 @@
     background: rgba(204, 136, 0, 0.05);
 }
 
+/* --- QR Form --- */
+
+.leet-form {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    margin: 1.5rem 0;
+}
+
+.leet-input {
+    font-family: var(--font-mono);
+    font-size: 1rem;
+    background: var(--color-bg-item);
+    color: var(--color-fg);
+    border: 1px dashed var(--color-border);
+    padding: 0.6rem 0.8rem;
+    outline: none;
+    width: 100%;
+    box-sizing: border-box;
+}
+
+.leet-input:focus {
+    border-style: solid;
+}
+
+.leet-button {
+    font-family: var(--font-mono);
+    font-size: 1rem;
+    background: transparent;
+    color: var(--color-fg);
+    border: 1px dashed var(--color-border);
+    padding: 0.6rem 1.2rem;
+    cursor: pointer;
+    align-self: flex-start;
+}
+
+.leet-button:hover {
+    border-style: solid;
+    background: rgba(0, 255, 0, 0.05);
+}
+
+.qr-result {
+    margin: 1rem 0;
+}
+
+.qr-result svg {
+    max-width: 100%;
+    height: auto;
+    display: block;
+}
+
 /* --- Footer --- */
 
 .leet-footer {
@@ -260,6 +318,20 @@
 
     .leet-h1 {
         font-size: 2rem;
+    }
+
+    .breaker-panel {
+        padding: 0.5rem;
+        margin: 0.75rem 0;
+    }
+
+    .breaker-slot {
+        font-size: 0.75rem;
+        padding: 0.25rem 0.3rem;
+    }
+
+    .breaker-row-num {
+        padding: 0 0.4rem;
     }
 }
 

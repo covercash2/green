@@ -43,6 +43,9 @@ pub enum Error {
         #[from]
         source: askama::Error,
     },
+
+    #[error("unable to encode QR code: {source}")]
+    QrEncode { source: qrcode::types::QrError },
 }
 
 impl IntoResponse for Error {
@@ -57,6 +60,7 @@ impl IntoResponse for Error {
             | Error::InvalidAddress { .. }
             | Error::ServerStart { .. }
             | Error::SetGlobalSubscriber { .. } => StatusCode::INTERNAL_SERVER_ERROR,
+            Error::QrEncode { .. } => StatusCode::BAD_REQUEST,
         };
         (status, self.to_string()).into_response()
     }
