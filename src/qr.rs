@@ -1,6 +1,10 @@
 use askama::Template;
-use axum::{extract::Json, http::header, response::{Html, IntoResponse}};
-use qrcode::{render::svg, QrCode};
+use axum::{
+    extract::Json,
+    http::header,
+    response::{Html, IntoResponse},
+};
+use qrcode::{QrCode, render::svg};
 use serde::Deserialize;
 
 use crate::error::Error;
@@ -12,7 +16,12 @@ pub struct QrPage {
 }
 
 pub async fn qr_page_route() -> Result<Html<String>, Error> {
-    Ok(Html(QrPage { version: crate::VERSION }.render()?))
+    Ok(Html(
+        QrPage {
+            version: crate::VERSION,
+        }
+        .render()?,
+    ))
 }
 
 #[derive(Deserialize)]
@@ -21,8 +30,7 @@ pub struct QrParams {
 }
 
 pub async fn qr_route(Json(params): Json<QrParams>) -> Result<impl IntoResponse, Error> {
-    let code = QrCode::new(params.data.as_bytes())
-        .map_err(|source| Error::QrEncode { source })?;
+    let code = QrCode::new(params.data.as_bytes()).map_err(|source| Error::QrEncode { source })?;
 
     let svg = code
         .render::<svg::Color>()

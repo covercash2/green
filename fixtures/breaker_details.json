@@ -1,0 +1,17 @@
+{
+  "todos": [
+    "master bedroom: breaker not yet identified"
+  ],
+  "slots": {
+    "1-left":  { "label": "garage",                                         "amperage": "20A", "devices": ["garage outlet west wall", "garage outlet south wall", "garage outlet east wall", "garage door opener (ceiling)"], "notes": "AFCI protected" },
+    "4-left":  { "label": "kitchen island" },
+    "7-right": { "label": "upstairs and living room ceiling lights",         "amperage": "15A", "devices": ["west bedroom ceiling fixture", "south bedroom ceiling fixture", "nook above garage ceiling fixture", "stairwell fixture", "living room ceiling fixture"] },
+    "8-right": { "label": "laundry" },
+    "9-right": { "label": "upstairs east bedroom, above garage outlets" },
+    "10-right":{ "label": "downstairs hallway and bathroom" },
+    "11-left": { "label": "X" },
+    "11-right":{ "label": "west wall" },
+    "12-left": { "label": "X" },
+    "12-right":{ "label": "???" }
+  }
+}

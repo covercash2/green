@@ -1,24 +1,51 @@
 use askama::Template;
 use axum::{extract::State, response::Html};
 
-use crate::{error::Error, route::RouteInfo, Routes, ServerState};
+use crate::{Routes, ServerState, error::Error};
+
+#[derive(Debug, Clone)]
+pub struct IndexEntry {
+    pub name: String,
+    pub href: String,
+    pub description: String,
+}
 
 #[derive(Debug, Clone, Template)]
 #[template(path = "index.html")]
 pub struct Index {
-    pub routes: Vec<(String, RouteInfo)>,
+    pub routes: Vec<IndexEntry>,
     pub version: &'static str,
 }
 
 impl Index {
     pub async fn new(routes: Routes) -> Result<Self, Error> {
-        let routes = {
-            let mut routes = routes.into_iter().collect::<Vec<_>>();
-            routes.sort_by(|a, b| a.0.cmp(&b.0));
-            routes
-        };
+        let mut routes: Vec<IndexEntry> = routes
+            .into_iter()
+            .map(|(name, info)| IndexEntry {
+                name,
+                href: format!("https://{}", info.url),
+                description: info.description,
+            })
+            .chain([
+                IndexEntry {
+                    name: "breaker box".into(),
+                    href: "/breaker".into(),
+                    description: "Electrical circuit layout".into(),
+                },
+                IndexEntry {
+                    name: "qr code".into(),
+                    href: "/qr".into(),
+                    description: "Generate a QR code".into(),
+                },
+            ])
+            .collect();
 
-        Ok(Index { routes, version: crate::VERSION })
+        routes.sort_by(|a, b| a.name.cmp(&b.name));
+
+        Ok(Index {
+            routes,
+            version: crate::VERSION,
+        })
     }
 }
 

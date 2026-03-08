@@ -1,0 +1,76 @@
+[[couples]]
+primary = "1-right"
+secondary = "2-right"
+
+todos = [
+  "master bedroom: breaker not yet identified",
+  "outdoor outlets: breaker not yet identified",
+  "kitchen ceiling lights: breaker not yet identified",
+  "dining area ceiling lights: breaker not yet identified",
+  "oven: breaker not yet identified",
+  "refrigerator: breaker not yet identified",
+  "entryway light: breaker not yet identified",
+  "doorbell: breaker not yet identified",
+  "upstairs outlets: breaker not yet identified",
+]
+
+[slots."1-right"]
+label = "dryer"
+notes = "unverified — confirm which breakers control the dryer"
+
+[slots."1-left"]
+label = "garage"
+amperage = "20A"
+devices = [
+  "garage outlet west wall",
+  "garage outlet south wall",
+  "garage outlets east wall x2",
+  "garage door opener (ceiling)",
+]
+notes = "AFCI protected"
+
+[slots."4-left"]
+label = "kitchen island"
+
+[slots."7-right"]
+label = "upstairs ceiling lights"
+amperage = "15A"
+devices = [
+  "west bedroom ceiling fixture",
+  "south bedroom ceiling fixture",
+  "nook above garage ceiling fixture",
+  "stairwell fixture",
+  "living room ceiling fixture",
+]
+
+[slots."8-right"]
+label = "laundry"
+devices = [
+  "washer",
+]
+notes = "standard outlet"
+
+[slots."9-right"]
+label = "upstairs east bedroom outlets"
+notes = "double-check: was labelled from old panel map, not verified in person"
+
+[slots."10-right"]
+label = "downstairs hallway lights"
+devices = [
+  "laundry room light",
+  "hallway light",
+  "bathroom light",
+]
+
+[slots."11-left"]
+label = "X"
+
+[slots."11-right"]
+label = "living room west wall outlets"
+notes = "unverified — probably living room"
+
+[slots."12-left"]
+label = "X"
+
+[slots."12-right"]
+label = "???"

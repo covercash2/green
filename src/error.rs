@@ -3,6 +3,8 @@ use std::path::PathBuf;
 use axum::{http::StatusCode, response::IntoResponse};
 use tracing_subscriber::filter::ParseError;
 
+use crate::breaker_detail;
+
 #[derive(Debug, thiserror::Error)]
 #[error("error running green")]
 pub enum Error {
@@ -14,12 +16,6 @@ pub enum Error {
 
     #[error("unable to parse log level")]
     EnvLevel { source: ParseError },
-
-    #[error("unable to read directory `{path}`: {source}")]
-    DirectoryRead {
-        source: std::io::Error,
-        path: PathBuf,
-    },
 
     #[error("unable to read file contents")]
     FileRead {
@@ -46,6 +42,12 @@ pub enum Error {
 
     #[error("unable to encode QR code: {source}")]
     QrEncode { source: qrcode::types::QrError },
+
+    #[error("invalid breaker configuration: {source}")]
+    BreakerStore {
+        #[from]
+        source: breaker_detail::BreakerStoreError,
+    },
 }
 
 impl IntoResponse for Error {
@@ -53,7 +55,6 @@ impl IntoResponse for Error {
         tracing::error!(error = %self, "a bad happened :(");
         let status = match self {
             Error::EnvLevel { .. }
-            | Error::DirectoryRead { .. }
             | Error::FileRead { .. }
             | Error::DeserializeTomlFile { .. }
             | Error::TemplateRender { .. }
@@ -61,6 +62,7 @@ impl IntoResponse for Error {
             | Error::ServerStart { .. }
             | Error::SetGlobalSubscriber { .. } => StatusCode::INTERNAL_SERVER_ERROR,
             Error::QrEncode { .. } => StatusCode::BAD_REQUEST,
+            Error::BreakerStore { .. } => StatusCode::INTERNAL_SERVER_ERROR,
         };
         (status, self.to_string()).into_response()
     }
