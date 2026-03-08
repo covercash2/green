@@ -5,6 +5,7 @@ use std::{
 };
 
 use axum::{extract::State, routing::get};
+use breaker_detail::{BreakerData, BreakerDetailStore, BreakerStore};
 use clap::Parser;
 use io::{load_toml_file, read_file};
 use route::Routes;
@@ -14,6 +15,7 @@ use tower_http::{services::ServeDir, trace::TraceLayer};
 use crate::{error::Error, index::Index};
 
 mod breaker;
+mod breaker_detail;
 mod error;
 mod index;
 mod io;
@@ -68,18 +70,23 @@ impl Route {
 pub struct ServerState {
     pub certificate: Arc<str>,
     pub breaker_page: Arc<breaker::BreakerPage>,
+    pub breaker_detail_store: Arc<dyn BreakerDetailStore>,
     pub index: Index,
 }
 
 impl ServerState {
     async fn new(config: &Config) -> Result<Self, Error> {
         let ca_content = read_file(&config.ca_path).await?;
-        let breaker_markdown = read_file(&config.breaker_path).await?;
+        let breaker_data: BreakerData = load_toml_file(&config.breaker_path).await?;
         let index = Index::new(config.routes.clone()).await?;
+
+        let store = Arc::new(BreakerStore::from_data(breaker_data)?);
+        let breaker_page = Arc::new(breaker::BreakerPage::new(store.as_ref()));
 
         Ok(ServerState {
             certificate: Arc::from(ca_content),
-            breaker_page: Arc::new(breaker::BreakerPage::new(&breaker_markdown)),
+            breaker_page,
+            breaker_detail_store: store,
             index,
         })
     }
@@ -91,6 +98,7 @@ fn build_router(state: ServerState) -> axum::Router {
         .route(Route::Certificates.as_str(), get(ca_route))
         .route(Route::HealthCheck.as_str(), get(health_check))
         .route(Route::BreakerBox.as_str(), get(breaker::breaker_route))
+        .route("/api/breaker/{key}", get(breaker::breaker_detail_route))
         .route(Route::Qr.as_str(), axum::routing::post(qr::qr_route))
         .route(Route::QrPage.as_str(), get(qr::qr_page_route))
         .nest_service("/assets", ServeDir::new("assets"))
@@ -111,7 +119,6 @@ async fn ca_route(State(state): State<ServerState>) -> String {
     format!("{}", state.certificate)
 }
 
-
 #[derive(Debug, Clone, Parser)]
 pub struct Cli {
     /// path to the config file
@@ -123,7 +130,7 @@ pub struct Cli {
 pub struct Config {
     /// path to the CA file
     pub ca_path: PathBuf,
-    /// path to the breaker box markdown file
+    /// path to the breaker box JSON file
     pub breaker_path: PathBuf,
     /// the port to bind the server to
     pub port: u16,

@@ -224,21 +224,161 @@
     background: rgba(0, 255, 0, 0.04);
 }
 
-.breaker-empty {
-    border-color: rgba(51, 255, 51, 0.12);
-    color: rgba(0, 255, 0, 0.18);
+.breaker-unlabeled {
+    border-color: #cc8800;
+    color: #cc8800;
+    background: rgba(204, 136, 0, 0.05);
 }
 
-.breaker-off {
-    border-color: #cc3333;
-    color: #cc3333;
-    background: rgba(204, 51, 51, 0.05);
+.breaker-unused {
+    border-color: rgba(128, 128, 128, 0.2);
+    color: rgba(128, 128, 128, 0.3);
+    background: none;
 }
 
 .breaker-unknown {
     border-color: #cc8800;
     color: #cc8800;
     background: rgba(204, 136, 0, 0.05);
+}
+
+/* --- Breaker Detail Panel --- */
+
+@keyframes breaker-detail-open {
+    from { opacity: 0; transform: translateY(-4px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes breaker-detail-close {
+    from { opacity: 1; transform: translateY(0); }
+    to   { opacity: 0; transform: translateY(-4px); }
+}
+
+.breaker-row-detail {
+    grid-column: 1 / -1;
+    display: none;
+}
+
+.breaker-row-detail:not(:empty) {
+    display: block;
+    animation: breaker-detail-open 150ms ease-out;
+    border: 1px solid var(--color-border);
+    padding: 0.75rem 1rem;
+    margin: 0.15rem 0 0.4rem;
+    background: rgba(0, 255, 0, 0.03);
+}
+
+.breaker-row-detail.breaker-closing {
+    display: block;
+    animation: breaker-detail-close 150ms ease-in forwards;
+}
+
+.breaker-clickable {
+    cursor: pointer;
+}
+
+.breaker-clickable:hover {
+    background: rgba(0, 255, 0, 0.08);
+}
+
+.breaker-detail-content {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+    font-size: 0.85rem;
+}
+
+.breaker-detail-close {
+    position: absolute;
+    top: 0;
+    right: 0;
+    background: transparent;
+    border: none;
+    color: var(--color-fg);
+    opacity: 0.5;
+    cursor: pointer;
+    font-family: var(--font-mono);
+    font-size: 1rem;
+    padding: 0 0.2rem;
+    line-height: 1;
+}
+
+.breaker-detail-close:hover {
+    opacity: 1;
+}
+
+.breaker-detail-key {
+    color: var(--color-heading);
+    margin-right: 0.5rem;
+}
+
+.breaker-detail-field {
+    display: flex;
+    align-items: baseline;
+    gap: 0.25rem;
+}
+
+.breaker-detail-devices {
+    margin: 0;
+    padding-left: 1.2rem;
+    list-style: disc;
+}
+
+.breaker-detail-devices li {
+    margin: 0.15rem 0;
+}
+
+.breaker-detail-empty {
+    opacity: 0.45;
+    font-style: italic;
+}
+
+/* --- Coupled Breakers --- */
+
+.breaker-coupled-primary {
+    border-bottom: none;
+    margin-bottom: 0;
+}
+
+.breaker-coupled-secondary {
+    border-top: 1px dashed var(--color-fg);
+    margin-top: 0;
+    opacity: 0.75;
+}
+
+/* --- Breaker Todos --- */
+
+.breaker-todos {
+    margin: 1.5rem 0 0;
+    color: var(--color-fg-dim);
+}
+
+.breaker-todos h3 {
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--color-fg);
+    opacity: 0.45;
+    margin: 0 0 0.4rem;
+}
+
+.breaker-todos ul {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+.breaker-todos li {
+    font-size: 0.85rem;
+    padding: 0.25rem 0;
+    border-bottom: 1px dashed rgba(51, 255, 51, 0.12);
+    opacity: 0.6;
+}
+
+.breaker-todos li::before {
+    content: "[ ] ";
+    opacity: 0.5;
 }
 
 /* --- QR Form --- */

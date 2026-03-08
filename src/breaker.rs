@@ -1,8 +1,10 @@
 use askama::Template;
-use axum::{extract::State, response::Html};
-use pulldown_cmark::{html, Event, Options, Parser, Tag, TagEnd};
+use axum::{
+    extract::{Path, State},
+    response::Html,
+};
 
-use crate::{error::Error, ServerState};
+use crate::{breaker_detail::{BreakerDetailStore, BreakerSlot}, error::Error, ServerState};
 
 #[derive(Debug, Clone, Template)]
 #[template(path = "breaker.html")]
@@ -12,8 +14,8 @@ pub struct BreakerPage {
 }
 
 impl BreakerPage {
-    pub fn new(markdown: &str) -> Self {
-        let content = render_content(markdown);
+    pub fn new(store: &dyn BreakerDetailStore) -> Self {
+        let content = render_from_store(store);
         BreakerPage {
             content,
             version: crate::VERSION,
@@ -21,10 +23,10 @@ impl BreakerPage {
     }
 }
 
-fn breaker_class(text: &str) -> &'static str {
-    match text.trim() {
-        "" => "breaker-empty",
-        "X" | "x" => "breaker-off",
+fn breaker_class(label: &str) -> &'static str {
+    match label.trim() {
+        "" => "breaker-unlabeled",
+        "X" | "x" => "breaker-unused",
         "???" => "breaker-unknown",
         _ => "breaker-known",
     }
@@ -37,94 +39,80 @@ fn html_escape(s: &str) -> String {
         .replace('"', "&quot;")
 }
 
-fn render_content(markdown: &str) -> String {
-    let options =
-        Options::ENABLE_TABLES | Options::ENABLE_STRIKETHROUGH | Options::ENABLE_TASKLISTS;
-    let parser = Parser::new_ext(markdown, options);
+fn render_slot(
+    store: &dyn BreakerDetailStore,
+    key: &str,
+    row_num: u32,
+    side_class: &str,
+) -> String {
+    let primary_key = store.coupled_primary_of(key);
+    let fetch_key = primary_key.unwrap_or(key);
 
+    let label = if let Some(pk) = primary_key {
+        store.get(pk).and_then(|s| s.label.as_deref()).unwrap_or("")
+    } else {
+        store.get(key).and_then(|s| s.label.as_deref()).unwrap_or("")
+    };
+
+    // Both coupled slots target the secondary's (lower) detail panel.
+    let detail_row = if primary_key.is_some() {
+        // This slot is the secondary — use its own row.
+        row_num
+    } else if let Some(sk) = store.coupled_secondary_of(key) {
+        // This slot is the primary — target the secondary's row.
+        sk.split_once('-')
+            .and_then(|(n, _)| n.parse::<u32>().ok())
+            .unwrap_or(row_num)
+    } else {
+        row_num
+    };
+
+    let mut extra_class = String::new();
+    if primary_key.is_some() {
+        extra_class.push_str(" breaker-coupled-secondary");
+    } else if store.is_coupled_primary(key) {
+        extra_class.push_str(" breaker-coupled-primary");
+    }
+
+    let text = if label.is_empty() {
+        "—".to_string()
+    } else {
+        html_escape(label)
+    };
+    let base_class = breaker_class(label);
+
+    format!(
+        r##"<div class="breaker-slot {side_class} {base_class}{extra_class} breaker-clickable" onclick="var k='{fetch_key}',d=document.getElementById('breaker-detail-{detail_row}');if(d.dataset.activeKey===k){{d.classList.add('breaker-closing');setTimeout(function(){{d.innerHTML='';d.dataset.activeKey='';d.classList.remove('breaker-closing');}},150);}}else{{d.dataset.activeKey=k;fetch('/api/breaker/'+k).then(function(r){{return r.text()}}).then(function(h){{d.innerHTML=h;}});}}"><span class="breaker-label">{text}</span></div>"##
+    )
+}
+
+fn render_from_store(store: &dyn BreakerDetailStore) -> String {
     let mut output = String::new();
-    let mut in_table = false;
-    let mut in_table_head = false;
-    let mut in_row = false;
-    let mut in_cell = false;
-    let mut cells: Vec<String> = Vec::new();
-    let mut current_cell = String::new();
-    let mut row_num: u32 = 0;
+    output.push_str(r#"<div class="breaker-panel"><div class="breaker-slots">"#);
 
-    for event in parser {
-        match event {
-            Event::Start(Tag::Table(_)) => {
-                in_table = true;
-                output.push_str(r#"<div class="breaker-panel"><div class="breaker-slots">"#);
-            }
-            Event::End(TagEnd::Table) => {
-                in_table = false;
-                row_num = 0;
-                output.push_str("</div></div>");
-            }
-            Event::Start(Tag::TableHead) => {
-                in_table_head = true;
-            }
-            Event::End(TagEnd::TableHead) => {
-                in_table_head = false;
-            }
-            Event::Start(Tag::TableRow) if !in_table_head => {
-                in_row = true;
-                cells.clear();
-                current_cell.clear();
-            }
-            Event::End(TagEnd::TableRow) if in_row => {
-                in_row = false;
-                row_num += 1;
+    for row_num in 1..=store.row_count() {
+        let left_key = format!("{row_num}-left");
+        let right_key = format!("{row_num}-right");
 
-                // columns: | # | left | right |
-                // cells[0] = row number (ignored, we use row_num)
-                // cells[1] = left circuit
-                // cells[2] = right circuit
-                let left = cells.get(1).map(|s| s.trim()).unwrap_or("");
-                let right = cells.get(2).map(|s| s.trim()).unwrap_or("");
+        output.push_str(&render_slot(store, &left_key, row_num, "breaker-slot-left"));
+        output.push_str(&format!(
+            r#"<div class="breaker-row-num">{row_num}</div>"#
+        ));
+        output.push_str(&render_slot(store, &right_key, row_num, "breaker-slot-right"));
+        output.push_str(&format!(
+            r#"<div id="breaker-detail-{row_num}" class="breaker-row-detail"></div>"#
+        ));
+    }
 
-                let left_class = breaker_class(left);
-                let right_class = breaker_class(right);
-                let left_text = if left.is_empty() {
-                    "—".to_string()
-                } else {
-                    html_escape(left)
-                };
-                let right_text = if right.is_empty() {
-                    "—".to_string()
-                } else {
-                    html_escape(right)
-                };
+    output.push_str("</div></div>");
 
-                output.push_str(&format!(
-                    r#"<div class="breaker-slot breaker-slot-left {left_class}"><span class="breaker-label">{left_text}</span></div>"#
-                ));
-                output.push_str(&format!(
-                    r#"<div class="breaker-row-num">{row_num}</div>"#
-                ));
-                output.push_str(&format!(
-                    r#"<div class="breaker-slot breaker-slot-right {right_class}"><span class="breaker-label">{right_text}</span></div>"#
-                ));
-            }
-            Event::Start(Tag::TableCell) if in_row => {
-                in_cell = true;
-                current_cell.clear();
-            }
-            Event::End(TagEnd::TableCell) if in_cell => {
-                in_cell = false;
-                cells.push(current_cell.trim().to_string());
-            }
-            Event::Text(text) if in_cell => {
-                current_cell.push_str(&text);
-            }
-            // skip all other events while inside a table (header cells, etc.)
-            _ if in_table => {}
-            // render non-table content normally
-            event => {
-                html::push_html(&mut output, std::iter::once(event));
-            }
+    let todos = store.todos();
+    if !todos.is_empty() {
+        output.push_str(r#"<div class="breaker-todos"><h3>needs labeling</h3><ul>"#);
+        for todo in todos {
+            output.push_str(&format!(r#"<li>{}</li>"#, html_escape(todo)));
         }
+        output.push_str("</ul></div>");
     }
 
     output
@@ -132,4 +120,25 @@ fn render_content(markdown: &str) -> String {
 
 pub async fn breaker_route(State(state): State<ServerState>) -> Result<Html<String>, Error> {
     Ok(Html(state.breaker_page.render()?))
+}
+
+#[derive(Template)]
+#[template(path = "partials/breaker_detail.html")]
+pub struct BreakerDetailTemplate<'a> {
+    pub detail: Option<&'a BreakerSlot>,
+}
+
+pub async fn breaker_detail_route(
+    Path(key): Path<String>,
+    State(state): State<ServerState>,
+) -> Result<Html<String>, Error> {
+    let lookup_key = state
+        .breaker_detail_store
+        .coupled_primary_of(&key)
+        .unwrap_or(&key)
+        .to_owned();
+    let detail = state.breaker_detail_store.get(&lookup_key).filter(|s| {
+        s.amperage.is_some() || s.devices.is_some() || s.notes.is_some()
+    });
+    Ok(Html(BreakerDetailTemplate { detail }.render()?))
 }
