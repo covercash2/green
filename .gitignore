@@ -7,3 +7,6 @@ secrets
 
 # pre-commit
 .pre-commit-config.yaml
+
+logs.ndjson
+.watch_state.toml

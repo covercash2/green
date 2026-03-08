@@ -14,6 +14,7 @@
 
 .leet-theme {
     font-family: var(--font-mono);
+    background-color: var(--color-bg);
     background: linear-gradient(90deg, var(--color-bg), #0d0d0d);
     color: var(--color-fg);
     text-shadow: 0px 0px 8px var(--color-fg);
@@ -170,30 +171,41 @@
 
 .breaker-slots {
     display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 0.3rem;
+    grid-template-columns: 1fr auto 1fr;
+    gap: 0.3rem 0;
+}
+
+.breaker-row-num {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 0.75rem;
+    font-size: 0.7rem;
+    color: var(--color-fg);
+    opacity: 0.35;
 }
 
 .breaker-slot {
     display: flex;
     align-items: center;
-    gap: 0.5rem;
     padding: 0.35rem 0.6rem;
     border: 1px solid;
     font-size: 0.85rem;
     min-height: 2rem;
+    margin: 0.15rem 0;
 }
 
-.breaker-num {
-    font-size: 0.7rem;
-    min-width: 1.5rem;
+.breaker-slot-left {
+    flex-direction: row-reverse;
     text-align: right;
-    opacity: 0.5;
-    flex-shrink: 0;
+}
+
+.breaker-slot-right {
+    flex-direction: row;
+    text-align: left;
 }
 
 .breaker-label {
-    flex: 1;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -242,7 +254,7 @@
 
     .leet-list-item {
         width: 100%;
-        margin: 0.25rem 0;
+        margin: 0.10rem 0;
         box-sizing: border-box;
     }
 
