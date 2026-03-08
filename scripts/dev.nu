@@ -1,30 +1,40 @@
 # Dev watch script — rebuilds and restarts the server on file changes.
 #
-# Watches all .rs, .toml, .nu, .css, and .html files. When a change is
-# detected, the current server job is killed and a new one is spawned.
-# Server output is appended to logs.ndjson.
+# Watches for changes to .rs, .toml, .nu, .css, .html, and .md files. When a
+# change is detected, the server is restarted. If a .nu script changes, the
+# entire dev environment is reloaded via exec so green.nu is re-imported.
+# Server stdout (JSON tracing) is appended to logs.ndjson unmodified.
+# Server stderr (cargo build output) is timestamped to the terminal.
 #
 # Usage: nu scripts/dev.nu
 
 use green.nu *
 
+green start
+
 watch . --debounce 5sec {|op, path, new_path|
-  print $"File modified: ($path)"
+  let files = glob "**/*.{rs,toml,nu,css,html,md}"
+    | each { path expand }
+    | where { |f| $f != ($watch_file | path expand) }
+  if ($path in $files) {
+    log $"file modified: ($path)"
 
-  let files = glob "**/*.{rs,toml,nu,css,html}"
-  if ($files | any {|file| $file == $path }) {
-    print "Restarting server..."
-
-    # Kill the previous server job if one is running
-    if ($env | get --optional current_job) != null {
-      print $"killing job: ($env.current_job)"
-      job kill $env.current_job
+    # Kill the current server using the job ID from the watch file
+    if ($watch_file | path exists) {
+      let state = open $watch_file
+      log $"killing job: ($state.job_id)"
+      job kill $state.job_id
     }
 
-    # Spawn a new server job and track it for the next restart
-    let new_job = (job spawn { green run | save --append logs.ndjson })
-    $env.current_job = $new_job
+    # Hot reload: .nu changes require re-importing green.nu, so replace
+    # this process entirely with a fresh dev.nu instead of just restarting
+    # the server
+    if (($path | path parse | get extension) == "nu") {
+      log "script changed — reloading dev environment"
+      exec nu scripts/dev.nu
+    }
 
-    print $"new job started: ($new_job)"
+    log "restarting server"
+    green start
   }
 }
