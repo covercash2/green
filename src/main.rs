@@ -21,6 +21,7 @@ mod index;
 mod io;
 mod qr;
 mod route;
+mod tailscale;
 
 pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+", env!("GIT_HASH"));
 
@@ -58,6 +59,10 @@ pub enum Route {
     #[serde(rename = "/qr")]
     #[strum(serialize = "/qr")]
     QrPage,
+
+    #[serde(rename = "/tailscale")]
+    #[strum(serialize = "/tailscale")]
+    Tailscale,
 }
 
 impl Route {
@@ -72,6 +77,7 @@ pub struct ServerState {
     pub breaker_page: Arc<breaker::BreakerPage>,
     pub breaker_detail_store: Arc<dyn BreakerDetailStore>,
     pub index: Index,
+    pub tailscale_socket: Arc<std::path::Path>,
 }
 
 impl ServerState {
@@ -88,6 +94,7 @@ impl ServerState {
             breaker_page,
             breaker_detail_store: store,
             index,
+            tailscale_socket: Arc::from(config.tailscale_socket.as_path()),
         })
     }
 }
@@ -101,6 +108,7 @@ fn build_router(state: ServerState) -> axum::Router {
         .route("/api/breaker/{key}", get(breaker::breaker_detail_route))
         .route(Route::Qr.as_str(), axum::routing::post(qr::qr_route))
         .route(Route::QrPage.as_str(), get(qr::qr_page_route))
+        .route(Route::Tailscale.as_str(), get(tailscale::tailscale_route))
         .nest_service("/assets", ServeDir::new("assets"))
         .layer(
             TraceLayer::new_for_http()
@@ -139,6 +147,8 @@ pub struct Config {
     pub log_level: String,
     #[serde(default)]
     pub routes: Routes,
+    #[serde(default = "default_tailscale_socket")]
+    pub tailscale_socket: PathBuf,
 }
 
 impl Config {
@@ -149,6 +159,10 @@ impl Config {
 
 fn default_log_level() -> String {
     "info".to_string()
+}
+
+fn default_tailscale_socket() -> PathBuf {
+    PathBuf::from("/run/tailscale/tailscaled.sock")
 }
 
 fn setup_tracing(log_level: &str) -> Result<(), Error> {

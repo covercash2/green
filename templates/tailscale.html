@@ -1,0 +1,96 @@
+{% extends "base.html" %}
+
+{% block title %}tailscale{% endblock %}
+
+{% block content %}
+<a href="/" class="leet-link">&larr; back</a>
+<h1 class="leet-h1">tailscale</h1>
+
+<div class="ts-status-bar">
+    <span class="ts-state ts-state-{{ backend_state|lower }}">{{ backend_state }}</span>
+    <span class="ts-daemon-version">v{{ ts_version }}</span>
+</div>
+
+<section class="ts-section">
+    <h2 class="ts-h2">this machine</h2>
+    <div class="ts-peer ts-self{% if self_peer.is_online() %} ts-peer-online{% else %} ts-peer-offline{% endif %}">
+        <div class="ts-peer-header">
+            <span class="ts-hostname">{{ self_peer.host_name }}</span>
+            <span class="ts-badge{% if self_peer.is_online() %} ts-badge-online{% else %} ts-badge-offline{% endif %}">
+                {% if self_peer.is_online() %}● online{% else %}○ offline{% endif %}
+            </span>
+        </div>
+        <div class="ts-fields">
+            {% if !self_peer.dns_name.is_empty() %}
+            <div class="ts-field"><span class="ts-key">dns</span><span class="ts-val">{{ self_peer.dns_name }}</span></div>
+            {% endif %}
+            <div class="ts-field"><span class="ts-key">os</span><span class="ts-val">{{ self_peer.os }}</span></div>
+            {% if !self_peer.ips_str().is_empty() %}
+            <div class="ts-field"><span class="ts-key">ips</span><span class="ts-val">{{ self_peer.ips_str() }}</span></div>
+            {% endif %}
+            {% if self_peer.rx_bytes.is_some() || self_peer.tx_bytes.is_some() %}
+            <div class="ts-field">
+                <span class="ts-key">rx</span><span class="ts-val">{{ self_peer.rx_str() }}</span>
+                <span class="ts-key ts-key-sep">tx</span><span class="ts-val">{{ self_peer.tx_str() }}</span>
+            </div>
+            {% endif %}
+            {% if let Some(relay) = self_peer.relay_str() %}
+            <div class="ts-field"><span class="ts-key">relay</span><span class="ts-val">{{ relay }}</span></div>
+            {% endif %}
+            {% let flags = self_peer.flags() %}
+            {% if !flags.is_empty() %}
+            <div class="ts-field ts-field-flags">
+                {% for flag in flags %}<span class="ts-flag">{{ flag }}</span>{% endfor %}
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</section>
+
+<section class="ts-section">
+    <h2 class="ts-h2">peers <span class="ts-peer-count">({{ peers.len() }})</span></h2>
+    {% for peer in peers %}
+    <div class="ts-peer{% if peer.is_online() %} ts-peer-online{% else %} ts-peer-offline{% endif %}">
+        <div class="ts-peer-header">
+            <span class="ts-hostname">{{ peer.host_name }}</span>
+            <span class="ts-badge{% if peer.is_online() %} ts-badge-online{% else %} ts-badge-offline{% endif %}">
+                {% if peer.is_online() %}● online{% else %}○ offline{% endif %}
+            </span>
+        </div>
+        <div class="ts-fields">
+            {% if !peer.dns_name.is_empty() %}
+            <div class="ts-field"><span class="ts-key">dns</span><span class="ts-val">{{ peer.dns_name }}</span></div>
+            {% endif %}
+            <div class="ts-field"><span class="ts-key">os</span><span class="ts-val">{{ peer.os }}</span></div>
+            {% if !peer.ips_str().is_empty() %}
+            <div class="ts-field"><span class="ts-key">ips</span><span class="ts-val">{{ peer.ips_str() }}</span></div>
+            {% endif %}
+            {% if let Some(last_seen) = peer.last_seen_str() %}
+            <div class="ts-field"><span class="ts-key">last seen</span><span class="ts-val ts-timestamp">{{ last_seen }}</span></div>
+            {% endif %}
+            {% if let Some(last_handshake) = peer.last_handshake_str() %}
+            <div class="ts-field"><span class="ts-key">last handshake</span><span class="ts-val ts-timestamp">{{ last_handshake }}</span></div>
+            {% endif %}
+            {% if peer.rx_bytes.is_some() || peer.tx_bytes.is_some() %}
+            <div class="ts-field">
+                <span class="ts-key">rx</span><span class="ts-val">{{ peer.rx_str() }}</span>
+                <span class="ts-key ts-key-sep">tx</span><span class="ts-val">{{ peer.tx_str() }}</span>
+            </div>
+            {% endif %}
+            {% if let Some(relay) = peer.relay_str() %}
+            <div class="ts-field"><span class="ts-key">relay</span><span class="ts-val">{{ relay }}</span></div>
+            {% endif %}
+            {% let flags = peer.flags() %}
+            {% if !flags.is_empty() %}
+            <div class="ts-field ts-field-flags">
+                {% for flag in flags %}<span class="ts-flag">{{ flag }}</span>{% endfor %}
+            </div>
+            {% endif %}
+            {% if let Some(tags) = peer.tags.as_ref() %}{% if !tags.is_empty() %}
+            <div class="ts-field"><span class="ts-key">tags</span><span class="ts-val">{{ tags.join(", ") }}</span></div>
+            {% endif %}{% endif %}
+        </div>
+    </div>
+    {% endfor %}
+</section>
+{% endblock %}

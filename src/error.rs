@@ -48,6 +48,15 @@ pub enum Error {
         #[from]
         source: breaker_detail::BreakerStoreError,
     },
+
+    #[error("failed to connect to Tailscale socket: {source}")]
+    TailscaleConnect { source: std::io::Error },
+
+    #[error("failed to parse Tailscale response: {0}")]
+    TailscaleParse(String),
+
+    #[error("failed to deserialize Tailscale response: {source}")]
+    TailscaleDeserialize { source: serde_json::Error },
 }
 
 impl IntoResponse for Error {
@@ -63,6 +72,9 @@ impl IntoResponse for Error {
             | Error::SetGlobalSubscriber { .. } => StatusCode::INTERNAL_SERVER_ERROR,
             Error::QrEncode { .. } => StatusCode::BAD_REQUEST,
             Error::BreakerStore { .. } => StatusCode::INTERNAL_SERVER_ERROR,
+            Error::TailscaleConnect { .. }
+            | Error::TailscaleParse(_)
+            | Error::TailscaleDeserialize { .. } => StatusCode::BAD_GATEWAY,
         };
         (status, self.to_string()).into_response()
     }
