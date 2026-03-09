@@ -82,7 +82,7 @@ fn render_slot(
     let base_class = breaker_class(label);
 
     format!(
-        r##"<div class="breaker-slot {side_class} {base_class}{extra_class} breaker-clickable" onclick="var k='{fetch_key}',d=document.getElementById('breaker-detail-{detail_row}');if(d.dataset.activeKey===k){{d.classList.add('breaker-closing');setTimeout(function(){{d.innerHTML='';d.dataset.activeKey='';d.classList.remove('breaker-closing');}},150);}}else{{d.dataset.activeKey=k;fetch('/api/breaker/'+k).then(function(r){{return r.text()}}).then(function(h){{d.innerHTML=h;}});}}"><span class="breaker-label">{text}</span></div>"##
+        r##"<div class="breaker-slot {side_class} {base_class}{extra_class} breaker-clickable" onclick="var k='{fetch_key}',d=document.getElementById('breaker-detail-{detail_row}');if(d.dataset.activeKey===k){{d.classList.remove('breaker-opening');d.classList.add('breaker-closing');setTimeout(function(){{d.innerHTML='';d.dataset.activeKey='';d.classList.remove('breaker-closing');}},150);}}else{{d.dataset.activeKey=k;fetch('/api/breaker/'+k).then(function(r){{return r.text()}}).then(function(h){{d.classList.remove('breaker-closing');d.innerHTML=h;d.classList.remove('breaker-opening');d.offsetHeight;d.classList.add('breaker-opening');}});}}"><span class="breaker-label">{text}</span></div>"##
     )
 }
 
