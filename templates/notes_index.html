@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+
+{% block title %}notes{% endblock %}
+
+{% block content %}
+<a href="/" class="leet-link">&larr; back</a>
+<h1 class="leet-h1">notes</h1>
+
+<section class="notes-section">
+    <h2 class="notes-h2">worldbuilding</h2>
+    {% if world_notes.is_empty() %}
+    <p class="notes-empty">no notes found</p>
+    {% else %}
+    <ul class="list-group">
+        {% for entry in world_notes %}
+        <li class="leet-list-item">
+            <a href="/notes/{{ entry.slug }}" class="leet-link">{{ entry.title }}</a>{% if entry.has_secrets %} <span class="notes-secret-badge">🔒</span>{% endif %}
+        </li>
+        {% endfor %}
+    </ul>
+    {% endif %}
+</section>
+
+<section class="notes-section">
+    <h2 class="notes-h2">sessions</h2>
+    {% if session_notes.is_empty() %}
+    <p class="notes-empty">no notes found</p>
+    {% else %}
+    <ul class="list-group">
+        {% for entry in session_notes %}
+        <li class="leet-list-item">
+            <a href="/notes/{{ entry.slug }}" class="leet-link">{{ entry.title }}</a>{% if entry.has_secrets %} <span class="notes-secret-badge">🔒</span>{% endif %}
+        </li>
+        {% endfor %}
+    </ul>
+    {% endif %}
+</section>
+{% endblock %}

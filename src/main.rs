@@ -19,6 +19,7 @@ mod breaker_detail;
 mod error;
 mod index;
 mod io;
+mod notes;
 mod qr;
 mod route;
 mod tailscale;
@@ -63,6 +64,10 @@ pub enum Route {
     #[serde(rename = "/tailscale")]
     #[strum(serialize = "/tailscale")]
     Tailscale,
+
+    #[serde(rename = "/notes")]
+    #[strum(serialize = "/notes")]
+    Notes,
 }
 
 impl Route {
@@ -78,13 +83,31 @@ pub struct ServerState {
     pub breaker_detail_store: Arc<dyn BreakerDetailStore>,
     pub index: Index,
     pub tailscale_socket: Arc<std::path::Path>,
+    pub notes_store: Option<Arc<notes::NotesStore>>,
 }
 
 impl ServerState {
     async fn new(config: &Config) -> Result<Self, Error> {
         let ca_content = read_file(&config.ca_path).await?;
         let breaker_data: BreakerData = load_toml_file(&config.breaker_path).await?;
-        let index = Index::new(config.routes.clone()).await?;
+
+        let notes_store = if let Some(ref vp) = config.vault_path {
+            let vp = vp.clone();
+            let store = tokio::task::spawn_blocking(move || notes::NotesStore::scan(&vp))
+                .await
+                .expect("notes scan task panicked")?;
+            tracing::info!(
+                world = store.world_notes.len(),
+                session = store.session_notes.len(),
+                "notes vault loaded"
+            );
+            Some(Arc::new(store))
+        } else {
+            None
+        };
+
+        let has_notes = notes_store.is_some();
+        let index = Index::new(config.routes.clone(), has_notes).await?;
 
         let store = Arc::new(BreakerStore::from_data(breaker_data)?);
         let breaker_page = Arc::new(breaker::BreakerPage::new(store.as_ref()));
@@ -95,6 +118,7 @@ impl ServerState {
             breaker_detail_store: store,
             index,
             tailscale_socket: Arc::from(config.tailscale_socket.as_path()),
+            notes_store,
         })
     }
 }
@@ -109,6 +133,8 @@ fn build_router(state: ServerState) -> axum::Router {
         .route(Route::Qr.as_str(), axum::routing::post(qr::qr_route))
         .route(Route::QrPage.as_str(), get(qr::qr_page_route))
         .route(Route::Tailscale.as_str(), get(tailscale::tailscale_route))
+        .route(Route::Notes.as_str(), get(notes::notes_index_route))
+        .route("/notes/{slug}", get(notes::notes_detail_route))
         .nest_service("/assets", ServeDir::new("assets"))
         .layer(
             TraceLayer::new_for_http()
@@ -149,6 +175,8 @@ pub struct Config {
     pub routes: Routes,
     #[serde(default = "default_tailscale_socket")]
     pub tailscale_socket: PathBuf,
+    #[serde(default)]
+    pub vault_path: Option<PathBuf>,
 }
 
 impl Config {
@@ -225,5 +253,34 @@ mod tests {
         let _config = Config::load(&config_path)
             .await
             .expect("Failed to load config");
+    }
+
+    #[tokio::test]
+    async fn dev_config_with_vault_path_deserializes() {
+        let config = Config::load(PathBuf::from("config.dev.toml"))
+            .await
+            .expect("Failed to load config.dev.toml");
+
+        assert!(
+            config.vault_path.is_some(),
+            "config.dev.toml should have a vault_path"
+        );
+        assert_eq!(
+            config.vault_path.unwrap(),
+            PathBuf::from("fixtures/vault")
+        );
+    }
+
+    #[tokio::test]
+    async fn config_without_vault_path_defaults_to_none() {
+        // config.toml does not have vault_path — should deserialize to None
+        let config = Config::load(PathBuf::from("config.toml"))
+            .await
+            .expect("Failed to load config.toml");
+
+        assert!(
+            config.vault_path.is_none(),
+            "config.toml should not have a vault_path"
+        );
     }
 }
