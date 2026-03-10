@@ -2,6 +2,7 @@ port = 10000
 ca_path = "fixtures/testCA.pem"
 breaker_path = "fixtures/breaker_details.toml"
 log_level = "debug"
+vault_path = "fixtures/vault"
 
 [routes.foundry]
 url = "foundry.green.chrash.net"

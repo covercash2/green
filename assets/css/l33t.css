@@ -642,3 +642,83 @@
     border: 1px solid rgba(125, 207, 255, 0.4);
     color: var(--color-accent);
 }
+
+/* --- Notes Vault --- */
+
+.notes-section {
+    margin-bottom: 2rem;
+}
+
+.notes-h2 {
+    font-size: 0.85rem;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--color-heading);
+    margin: 0 0 0.75rem;
+    border-bottom: 1px solid rgba(198, 120, 221, 0.2);
+    padding-bottom: 0.3rem;
+}
+
+.notes-empty {
+    opacity: 0.5;
+    font-size: 0.9rem;
+}
+
+.notes-dead-link {
+    opacity: 0.4;
+    text-decoration: line-through;
+}
+
+.notes-detail {
+    max-width: 72ch;
+    margin-top: 1.5rem;
+}
+
+/* Secret / redacted content — present in DOM for future auth, hidden by CSS */
+
+.notes-secret {
+    position: relative;
+    margin: 1rem 0;
+    padding: 0.5rem 0.75rem;
+    border: 1px dashed rgba(198, 120, 221, 0.25);
+}
+
+.notes-secret::before {
+    content: "gm only";
+    display: block;
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--color-heading);
+    opacity: 0.55;
+    margin-bottom: 0.4rem;
+    user-select: none;
+}
+
+.notes-secret > * {
+    filter: blur(5px);
+    user-select: none;
+    pointer-events: none;
+    opacity: 0.7;
+}
+
+/* Future: add this class (e.g. via JS after auth) to reveal content */
+.notes-secret.notes-secret-revealed::before {
+    content: "gm only (revealed)";
+    opacity: 0.35;
+}
+
+.notes-secret.notes-secret-revealed > * {
+    filter: none;
+    user-select: auto;
+    pointer-events: auto;
+    opacity: 1;
+}
+
+.notes-secret-badge {
+    font-size: 0.75rem;
+    opacity: 0.6;
+    margin-left: 0.25rem;
+    vertical-align: middle;
+    user-select: none;
+}
