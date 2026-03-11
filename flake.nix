@@ -42,6 +42,9 @@
             fileset = nixpkgs.lib.fileset.unions [
               (craneLib.fileset.commonCargoSources ./.)
               (nixpkgs.lib.fileset.maybeMissing ./templates)
+              (nixpkgs.lib.fileset.maybeMissing ./migrations)
+              (nixpkgs.lib.fileset.maybeMissing ./fixtures)
+              (nixpkgs.lib.fileset.maybeMissing ./assets)
             ];
           };
 
@@ -70,9 +73,11 @@
             pname = "green";
             version = "0.1.0";
 
-            # Augment wrapper path if needed
             postInstall = ''
+              mkdir -p $out/share/green
+              cp -r assets $out/share/green/assets
               wrapProgram $out/bin/green \
+                --chdir "$out/share/green" \
                 --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.openssl ]}
             '';
           }
@@ -219,6 +224,52 @@
               description = "Directory where the bot stores its data";
               example = "/var/lib/green";
             };
+
+            auth = mkOption {
+              default = null;
+              description = "WebAuthn / passkey authentication configuration. If null, auth routes are disabled.";
+              type = types.nullOr (types.submodule {
+                options = {
+                  rpId = mkOption {
+                    type = types.str;
+                    example = "example.com";
+                    description = "WebAuthn relying party ID (typically the registrable domain suffix)";
+                  };
+                  rpOrigin = mkOption {
+                    type = types.str;
+                    example = "https://green.example.com";
+                    description = "WebAuthn relying party origin URL";
+                  };
+                  dbUrl = mkOption {
+                    type = types.str;
+                    example = "postgres://green:password@localhost/green";
+                    description = "PostgreSQL connection URL for user and passkey storage";
+                  };
+                  gmUsers = mkOption {
+                    type = types.listOf types.str;
+                    default = [];
+                    example = [ "alice" ];
+                    description = "Usernames that receive the GM role";
+                  };
+                  ntfyUrl = mkOption {
+                    type = types.nullOr types.str;
+                    default = null;
+                    example = "https://ntfy.example.com/my-secret-topic";
+                    description = "ntfy topic URL for sending account recovery codes. If null, recovery notifications are not sent.";
+                  };
+                  dbUrlFile = mkOption {
+                    type = types.nullOr types.path;
+                    default = null;
+                    example = "/run/secrets/green-db-url";
+                    description = ''
+                      Path to a file containing <literal>GREEN_DB_URL=postgres://...</literal>.
+                      When set, this overrides <option>dbUrl</option> at runtime so that
+                      credentials never appear in the Nix store.
+                    '';
+                  };
+                };
+              });
+            };
           };
 
           config = lib.mkIf cfg.enable {
@@ -241,7 +292,16 @@
               log_level = "${cfg.logLevel}"
               ca_path = "${cfg.caPath}"
 
-              ${lib.concatStringsSep "\n" (lib.mapAttrsToList (k: v: "[routes.${k}]\nurl = \"${v.url}\"\ndescription = \"${v.description}\"" ) cfg.routes)}
+              ${lib.concatStringsSep "\n" (lib.mapAttrsToList (k: v: "[routes.${k}]\nurl = \"${v.url}\"\ndescription = \"${v.description}\"") cfg.routes)}
+
+              ${lib.optionalString (cfg.auth != null) ''
+              [auth]
+              rp_id = "${cfg.auth.rpId}"
+              rp_origin = "${cfg.auth.rpOrigin}"
+              db_url = "${cfg.auth.dbUrl}"
+              gm_users = [${lib.concatStringsSep ", " (map (u: "\"${u}\"") cfg.auth.gmUsers)}]
+              ${lib.optionalString (cfg.auth.ntfyUrl != null) "ntfy_url = \"${cfg.auth.ntfyUrl}\""}
+              ''}
             '';
 
             systemd.services.green = {
@@ -257,6 +317,9 @@
                 '';
                 User = cfg.user;
                 Group = cfg.group;
+                EnvironmentFile = lib.optional
+                  (cfg.auth != null && cfg.auth.dbUrlFile != null)
+                  cfg.auth.dbUrlFile;
                 Restart = "always";
                 RestartSec = "10";
 

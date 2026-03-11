@@ -9,6 +9,14 @@ export def log [msg: string] {
   print $"(date now | format date '%Y-%m-%dT%H:%M:%S%z') ($msg)"
 }
 
+# Load dev secrets from secrets.toml (gitignored) if present.
+# Returns a record suitable for `with-env`; empty record if file is missing.
+# Copy secrets.toml.example to secrets.toml and fill in your credentials.
+def "load-secrets" [] {
+  let path = "secrets.toml"
+  if ($path | path exists) { open $path } else { {} }
+}
+
 # Build the cargo run argument list
 def "green args" [config_path: path] {
   [cargo run -- --config-path $config_path]
@@ -19,6 +27,7 @@ export def "green run" [
   config_path: path = "./config.dev.toml"
 ] {
   let args = (green args $config_path)
+  load-env (load-secrets)
   log $"running: ($args | str join ' ')"
   run-external ...$args
 }
@@ -29,15 +38,16 @@ export def "green run" [
 export def "green start" [
   config_path: path = "./config.dev.toml"
 ] {
-  # Build args in outer scope so the closure can capture them.
+  # load-env before job spawn so the closure captures the secrets in its environment.
   # run-external is used inside the job instead of green run because
   # custom commands are not in scope inside job spawn closures.
   let args = (green args $config_path)
+  load-env (load-secrets)
   log $"running: ($args | str join ' ')"
   let job = (job spawn {
-  run-external ...$args o>> logs.ndjson e>| each { |line|
-    log $line
-  } | print
+    run-external ...$args o>> logs.ndjson e>| each { |line|
+      log $line
+    } | print
   })
   log $"server started: ($job)"
   {job_id: $job, updated_at: (date now | format date '%Y-%m-%dT%H:%M:%S%z')} | to toml | save --force $watch_file

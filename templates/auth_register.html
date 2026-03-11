@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+
+{% block title %}register{% endblock %}
+
+{% block content %}
+<h1 class="leet-h1">register passkey</h1>
+<div class="leet-form-container">
+    <form id="reg-form" class="leet-form" onsubmit="return false;">
+        <input
+            type="text"
+            id="username"
+            class="leet-input"
+            placeholder="username"
+            autocomplete="username"
+            autocorrect="off"
+            autocapitalize="off"
+            spellcheck="false"
+        >
+        <button type="button" id="reg-btn" class="leet-button">register passkey</button>
+        <div id="reg-error" class="leet-error" style="display:none;"></div>
+    </form>
+    <p class="leet-hint">already registered? <a href="/auth/login" class="leet-link">sign in</a></p>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="/assets/js/simplewebauthn.min.js"></script>
+<script type="module" src="/assets/js/auth-register.js"></script>
+{% endblock %}

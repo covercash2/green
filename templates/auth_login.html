@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+
+{% block title %}sign in{% endblock %}
+
+{% block content %}
+<h1 class="leet-h1">sign in</h1>
+<div class="leet-form-container">
+    <form id="auth-form" class="leet-form" onsubmit="return false;">
+        <input
+            type="text"
+            id="username"
+            class="leet-input"
+            placeholder="username"
+            autocomplete="username webauthn"
+            autocorrect="off"
+            autocapitalize="off"
+            spellcheck="false"
+        >
+        <button type="button" id="auth-btn" class="leet-button">sign in with passkey</button>
+        <div id="auth-error" class="leet-error" style="display:none;"></div>
+    </form>
+    <p class="leet-hint">no account? <a href="/auth/register" class="leet-link">register</a></p>
+    <p class="leet-hint">lost your passkey? <a href="/auth/recover" class="leet-link">recover account</a></p>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="/assets/js/simplewebauthn.min.js"></script>
+<script type="module" src="/assets/js/auth-login.js"></script>
+{% endblock %}

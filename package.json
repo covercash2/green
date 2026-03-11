@@ -1,0 +1,8 @@
+{
+  "name": "green-js",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "test": "node --test test/js/*.test.js"
+  }
+}

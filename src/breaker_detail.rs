@@ -2,6 +2,8 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
+use crate::io::load_toml_file;
+
 pub trait BreakerDetailStore: Send + Sync + std::fmt::Debug {
     fn get(&self, key: &str) -> Option<&BreakerSlot>;
     fn row_count(&self) -> u32;
@@ -34,8 +36,19 @@ pub struct BreakerData {
     pub couples: Vec<CoupledPair>,
 }
 
+impl BreakerData {
+    pub async fn load() -> Result<Self, BreakerStoreError> {
+        let data = load_toml_file("assets/breaker_details.toml").await?;
+
+        Ok(data)
+    }
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum BreakerStoreError {
+    #[error("failed to read breaker data file: {0}")]
+    Io(#[from] crate::io::IoError),
+
     #[error("coupled pair `{primary}` and `{secondary}` are on different sides")]
     MismatchedSides { primary: String, secondary: String },
 
@@ -65,7 +78,8 @@ impl BreakerStore {
 
         let mut coupled_secondaries: HashMap<String, String> = HashMap::new();
         let mut coupled_primaries: HashMap<String, String> = HashMap::new();
-        let mut seen_in_couples: std::collections::HashSet<String> = std::collections::HashSet::new();
+        let mut seen_in_couples: std::collections::HashSet<String> =
+            std::collections::HashSet::new();
 
         for pair in &data.couples {
             let primary_side = pair.primary.split_once('-').map(|(_, s)| s);

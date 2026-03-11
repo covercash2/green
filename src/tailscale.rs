@@ -5,7 +5,7 @@ use axum::{extract::State, response::Html};
 use serde::Deserialize;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
-use crate::{error::Error, ServerState};
+use crate::{auth::{AuthUserInfo, GmUser}, error::Error, ServerState};
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "PascalCase")]
@@ -122,6 +122,7 @@ pub struct TailscalePage {
     pub backend_state: String,
     pub self_peer: TailscalePeer,
     pub peers: Vec<TailscalePeer>,
+    pub auth_user: Option<AuthUserInfo>,
 }
 
 async fn fetch_status(socket_path: &Path) -> Result<TailscaleStatus, Error> {
@@ -149,11 +150,19 @@ async fn fetch_status(socket_path: &Path) -> Result<TailscaleStatus, Error> {
         .map_err(|source| Error::TailscaleDeserialize { source })
 }
 
-pub async fn tailscale_route(State(state): State<ServerState>) -> Result<Html<String>, Error> {
+pub async fn tailscale_route(
+    user: GmUser,
+    State(state): State<ServerState>,
+) -> Result<Html<String>, Error> {
     let mut status = fetch_status(&state.tailscale_socket).await?;
 
     let mut peers: Vec<TailscalePeer> = status.peer.drain().map(|(_, v)| v).collect();
     peers.sort_by(|a, b| a.host_name.cmp(&b.host_name));
+
+    let auth_user = Some(crate::auth::AuthUserInfo {
+        username: user.0.username.clone(),
+        role: user.0.role.clone(),
+    });
 
     let page = TailscalePage {
         version: crate::VERSION,
@@ -161,6 +170,7 @@ pub async fn tailscale_route(State(state): State<ServerState>) -> Result<Html<St
         backend_state: status.backend_state,
         self_peer: status.self_peer,
         peers,
+        auth_user,
     };
 
     Ok(Html(page.render()?))

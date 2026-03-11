@@ -14,6 +14,16 @@
 </head>
 <body class="leet-theme">
     <div class="leet-container">
+        <nav class="leet-nav">
+        {% if let Some(user) = auth_user %}
+            <span class="leet-nav-user">{{ user.username }}</span>
+            <form action="/auth/logout" method="post" class="leet-nav-form">
+                <button class="leet-nav-btn" type="submit">sign out</button>
+            </form>
+        {% else %}
+            <a href="/auth/login" class="leet-link">sign in</a>
+        {% endif %}
+        </nav>
         {% block content %}{% endblock %}
         <footer class="leet-footer">v{{ version }}</footer>
     </div>
