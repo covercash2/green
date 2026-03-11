@@ -1,7 +1,12 @@
 port = 10000
 ca_path = "fixtures/testCA.pem"
-breaker_path = "fixtures/breaker_details.toml"
 log_level = "info"
+
+[auth]
+rp_id = "chrash.net"
+rp_origin = "https://home.green.chrash.net"
+db_url = "postgres://green:REDACTED@localhost/green"
+gm_users = ["chrash"]
 
 [routes.foundry]
 url = "foundry.green.chrash.net"

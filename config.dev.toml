@@ -1,8 +1,14 @@
 port = 10000
 ca_path = "fixtures/testCA.pem"
-breaker_path = "fixtures/breaker_details.toml"
 log_level = "debug"
 vault_path = "fixtures/vault"
+
+[auth]
+rp_id = "chrash.net"
+rp_origin = "https://dev.green.chrash.net"
+db_url = "postgres://green:devpassword@localhost/green"
+gm_users = ["chrash"]
+ntfy_url = "http://localhost:8083/green-recovery"
 
 [routes.foundry]
 url = "foundry.green.chrash.net"

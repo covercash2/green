@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+
+{% block title %}recover account{% endblock %}
+
+{% block content %}
+<h1 class="leet-h1">recover account</h1>
+<div class="leet-form-container">
+    <div id="step-1">
+        <form class="leet-form" onsubmit="return false;">
+            <input
+                type="text"
+                id="username"
+                class="leet-input"
+                placeholder="username"
+                autocorrect="off"
+                autocapitalize="off"
+                spellcheck="false"
+            >
+            <button type="button" id="send-code-btn" class="leet-button">send recovery code</button>
+            <div id="send-error" class="leet-error" style="display:none;"></div>
+        </form>
+    </div>
+    <div id="step-2" style="display:none;">
+        <form class="leet-form" onsubmit="return false;">
+            <p class="leet-hint">check your ntfy app for a 6-character code</p>
+            <input
+                type="text"
+                id="code"
+                class="leet-input"
+                placeholder="recovery code"
+                autocorrect="off"
+                autocapitalize="characters"
+                spellcheck="false"
+                maxlength="6"
+            >
+            <button type="button" id="verify-btn" class="leet-button">verify code</button>
+            <div id="verify-error" class="leet-error" style="display:none;"></div>
+        </form>
+    </div>
+    <p class="leet-hint"><a href="/auth/login" class="leet-link">back to sign in</a></p>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script type="module" src="/assets/js/auth-recover.js"></script>
+{% endblock %}

@@ -1,7 +1,7 @@
 use askama::Template;
 use axum::{extract::State, response::Html};
 
-use crate::{Routes, ServerState, error::Error};
+use crate::{Routes, ServerState, auth::{AuthUserInfo, MaybeAuthUser}, error::Error};
 
 #[derive(Debug, Clone)]
 pub struct IndexEntry {
@@ -15,6 +15,7 @@ pub struct IndexEntry {
 pub struct Index {
     pub routes: Vec<IndexEntry>,
     pub version: &'static str,
+    pub auth_user: Option<AuthUserInfo>,
 }
 
 impl Index {
@@ -54,12 +55,20 @@ impl Index {
         Ok(Index {
             routes,
             version: crate::VERSION,
+            auth_user: None,
         })
     }
 }
 
-pub async fn index(State(state): State<ServerState>) -> Result<Html<String>, Error> {
-    Ok(Html(state.index.render()?))
+pub async fn index(
+    MaybeAuthUser(auth_user): MaybeAuthUser,
+    State(state): State<ServerState>,
+) -> Result<Html<String>, Error> {
+    let page = Index {
+        auth_user,
+        ..state.index.clone()
+    };
+    Ok(Html(page.render()?))
 }
 
 #[cfg(test)]

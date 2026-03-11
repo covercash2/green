@@ -1,6 +1,6 @@
 # Dev watch script — rebuilds and restarts the server on file changes.
 #
-# Watches for changes to .rs, .toml, .nu, .css, .html, .md, and .json files. When a
+# Watches for changes to .rs, .toml, .nu, .css, .html, .md, .json, and .js files. When a
 # change is detected, the server is restarted. If a .nu script changes, the
 # entire dev environment is reloaded via exec so green.nu is re-imported.
 # Server stdout (JSON tracing) is appended to logs.ndjson unmodified.
@@ -13,7 +13,7 @@ use green.nu *
 green start
 
 watch . --debounce 5sec {|op, path, new_path|
-  let files = glob "**/*.{rs,toml,nu,css,html,md,json}"
+  let files = glob "**/*.{rs,toml,nu,css,html,md,json,js}"
     | each { path expand }
     | where { |f| $f != ($watch_file | path expand) }
   if ($path in $files) {

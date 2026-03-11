@@ -1,24 +1,29 @@
 use askama::Template;
 use axum::{
-    extract::Json,
+    extract::{Json, State},
     http::header,
     response::{Html, IntoResponse},
 };
 use qrcode::{QrCode, render::svg};
 use serde::Deserialize;
 
-use crate::error::Error;
+use crate::{ServerState, auth::{AuthUserInfo, MaybeAuthUser}, error::Error};
 
 #[derive(Debug, Clone, Template)]
 #[template(path = "qr.html")]
 pub struct QrPage {
     pub version: &'static str,
+    pub auth_user: Option<AuthUserInfo>,
 }
 
-pub async fn qr_page_route() -> Result<Html<String>, Error> {
+pub async fn qr_page_route(
+    MaybeAuthUser(auth_user): MaybeAuthUser,
+    State(_): State<ServerState>,
+) -> Result<Html<String>, Error> {
     Ok(Html(
         QrPage {
             version: crate::VERSION,
+            auth_user,
         }
         .render()?,
     ))

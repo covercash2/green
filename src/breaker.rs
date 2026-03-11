@@ -4,23 +4,25 @@ use axum::{
     response::Html,
 };
 
-use crate::{breaker_detail::{BreakerDetailStore, BreakerSlot}, error::Error, ServerState};
+use crate::{auth::{AuthUserInfo, GmUser}, breaker_detail::{BreakerDetailStore, BreakerSlot}, error::Error, ServerState};
+
+/// Pre-computed breaker panel HTML content (the circuit layout).
+/// Stored in ServerState and used to construct `BreakerPage` per request.
+#[derive(Debug, Clone)]
+pub struct BreakerContent(pub String);
+
+impl BreakerContent {
+    pub fn new(store: &dyn BreakerDetailStore) -> Self {
+        BreakerContent(render_from_store(store))
+    }
+}
 
 #[derive(Debug, Clone, Template)]
 #[template(path = "breaker.html")]
 pub struct BreakerPage {
     pub content: String,
     pub version: &'static str,
-}
-
-impl BreakerPage {
-    pub fn new(store: &dyn BreakerDetailStore) -> Self {
-        let content = render_from_store(store);
-        BreakerPage {
-            content,
-            version: crate::VERSION,
-        }
-    }
+    pub auth_user: Option<AuthUserInfo>,
 }
 
 fn breaker_class(label: &str) -> &'static str {
@@ -118,8 +120,20 @@ fn render_from_store(store: &dyn BreakerDetailStore) -> String {
     output
 }
 
-pub async fn breaker_route(State(state): State<ServerState>) -> Result<Html<String>, Error> {
-    Ok(Html(state.breaker_page.render()?))
+pub async fn breaker_route(
+    user: GmUser,
+    State(state): State<ServerState>,
+) -> Result<Html<String>, Error> {
+    let auth_user = Some(AuthUserInfo {
+        username: user.0.username.clone(),
+        role: user.0.role.clone(),
+    });
+    let page = BreakerPage {
+        content: state.breaker_content.0.clone(),
+        version: crate::VERSION,
+        auth_user,
+    };
+    Ok(Html(page.render()?))
 }
 
 #[derive(Template)]
@@ -129,6 +143,7 @@ pub struct BreakerDetailTemplate<'a> {
 }
 
 pub async fn breaker_detail_route(
+    _user: GmUser,
     Path(key): Path<String>,
     State(state): State<ServerState>,
 ) -> Result<Html<String>, Error> {

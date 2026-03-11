@@ -13,7 +13,7 @@ use axum::{
 };
 use serde::Deserialize;
 
-use crate::{ServerState, VERSION, error::Error};
+use crate::{ServerState, VERSION, auth::{AuthUserInfo, MaybeAuthUser, Role}, error::Error};
 
 // ─── Slug ─────────────────────────────────────────────────────────────────────
 
@@ -121,7 +121,10 @@ struct FrontMatter {
 pub struct Note {
     pub slug: Slug,
     pub title: String,
+    /// Player-visible HTML: secret blocks wrapped in `<div class="notes-secret">`.
     pub html: RenderedHtml,
+    /// GM-visible HTML: secret blocks rendered without the wrapper.
+    pub html_gm: RenderedHtml,
     /// `true` if the note contains any secret blocks (inline or whole-note).
     /// Used to show a 🔒 badge on the index.
     pub has_secrets: bool,
@@ -319,6 +322,18 @@ fn render_note_body(text: &str) -> (RenderedHtml, bool) {
     (RenderedHtml(output), has_secrets)
 }
 
+/// Like [`render_note_body`] but renders secret paragraphs without the
+/// `<div class="notes-secret">` wrapper. Intended for GM-authenticated views.
+fn render_note_body_revealed(text: &str) -> RenderedHtml {
+    let parts = split_on_secret_paragraphs(text);
+    let mut output = String::new();
+    for (content, _is_secret) in &parts {
+        let rendered = render_markdown(content);
+        output.push_str(rendered.as_str());
+    }
+    RenderedHtml(output)
+}
+
 // ─── NotesStore ───────────────────────────────────────────────────────────────
 
 impl NotesStore {
@@ -387,21 +402,26 @@ impl NotesStore {
 
             // `tags: [secret]` (Obsidian-style) marks the entire note as redacted.
             let is_whole_secret = fm.tags.iter().any(|t| t == "secret");
-            let (html, has_secrets) = if is_whole_secret {
+            let (html, html_gm, has_secrets) = if is_whole_secret {
                 let rendered = render_markdown(&resolved);
                 let wrapped = RenderedHtml(format!(
                     r#"<div class="notes-secret">{}</div>"#,
                     rendered.as_str()
                 ));
-                (wrapped, true)
+                // GM sees the note without the wrapper
+                let gm = render_markdown(&resolved);
+                (wrapped, gm, true)
             } else {
-                render_note_body(&resolved)
+                let (player_html, has_secrets) = render_note_body(&resolved);
+                let gm_html = render_note_body_revealed(&resolved);
+                (player_html, gm_html, has_secrets)
             };
 
             let note = Note {
                 slug: slug.clone(),
                 title,
                 html,
+                html_gm,
                 has_secrets,
             };
 
@@ -438,6 +458,7 @@ pub struct NotesIndexPage {
     pub version: &'static str,
     pub world_notes: Vec<NoteEntry>,
     pub session_notes: Vec<NoteEntry>,
+    pub auth_user: Option<AuthUserInfo>,
 }
 
 #[derive(Template)]
@@ -447,11 +468,13 @@ pub struct NotesDetailPage {
     pub title: String,
     /// Pre-rendered HTML from [`RenderedHtml`] — safe for `|safe` in the template.
     pub content: String,
+    pub auth_user: Option<AuthUserInfo>,
 }
 
 // ─── Handlers ─────────────────────────────────────────────────────────────────
 
 pub async fn notes_index_route(
+    MaybeAuthUser(auth_user): MaybeAuthUser,
     State(state): State<ServerState>,
 ) -> Result<Html<String>, Error> {
     let store: &Arc<NotesStore> = state.notes_store.as_ref().ok_or(Error::NotFound)?;
@@ -480,20 +503,29 @@ pub async fn notes_index_route(
         version: VERSION,
         world_notes,
         session_notes,
+        auth_user,
     };
     Ok(Html(page.render()?))
 }
 
 pub async fn notes_detail_route(
+    MaybeAuthUser(auth_user): MaybeAuthUser,
     AxumPath(slug): AxumPath<String>,
     State(state): State<ServerState>,
 ) -> Result<Html<String>, Error> {
     let store: &Arc<NotesStore> = state.notes_store.as_ref().ok_or(Error::NotFound)?;
     let note = store.get(&slug).ok_or(Error::NotFound)?;
+    let is_gm = auth_user.as_ref().map(|u| u.role == Role::Gm).unwrap_or(false);
+    let content = if is_gm {
+        note.html_gm.as_str().to_owned()
+    } else {
+        note.html.as_str().to_owned()
+    };
     let page = NotesDetailPage {
         version: VERSION,
         title: note.title.clone(),
-        content: note.html.as_str().to_owned(),
+        content,
+        auth_user: auth_user.clone(),
     };
     Ok(Html(page.render()?))
 }
@@ -903,7 +935,7 @@ mod tests {
 
     async fn minimal_state(notes_store: Option<Arc<NotesStore>>) -> crate::ServerState {
         use crate::{
-            breaker::BreakerPage,
+            breaker::BreakerContent,
             breaker_detail::{BreakerData, BreakerDetailStore, BreakerStore},
             index::Index,
             route::Routes,
@@ -917,17 +949,18 @@ mod tests {
         };
         let store = Arc::new(BreakerStore::from_data(data).unwrap());
         let breaker_detail_store: Arc<dyn BreakerDetailStore> = store.clone();
-        let breaker_page = Arc::new(BreakerPage::new(store.as_ref()));
+        let breaker_content = Arc::new(BreakerContent::new(store.as_ref()));
         let has_notes = notes_store.is_some();
         let index = Index::new(Routes::default(), has_notes).await.unwrap();
 
         crate::ServerState {
             certificate: Arc::from("fake-cert"),
-            breaker_page,
+            breaker_content,
             breaker_detail_store,
             index,
             tailscale_socket: Arc::from(std::path::Path::new("/tmp/fake.sock")),
             notes_store,
+            auth_state: None,
         }
     }
 
