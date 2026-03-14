@@ -9,4 +9,5 @@ secrets
 .pre-commit-config.yaml
 
 logs.ndjson
+errors.log
 .watch_state.toml
