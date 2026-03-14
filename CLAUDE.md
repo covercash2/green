@@ -8,7 +8,89 @@ Green is a Rust-based HTTP server that provides an internal routing/landing page
 
 ## Build & Development Commands
 
-### Build and Run
+### Dev Server Lifecycle
+
+The dev server runs as a **detached OS process** (via `setsid --fork`) that outlives any
+nushell session — including the Claude Code Bash tool. This means you can start, stop, or
+restart the server from any terminal, any Zellij pane, or any Bash tool invocation.
+
+**All server management goes through `scripts/green.nu`.** Do not use `cargo run` directly
+for development; it won't set credentials or redirect logs correctly.
+
+```nu
+# Load the commands into any nushell session
+use scripts/green.nu *
+
+# Start the server (builds if needed, truncates logs, detaches)
+green start
+
+# Stop the running server
+green stop
+
+# Rebuild and restart (the typical workflow after making code changes)
+green restart
+
+# Run in the foreground (useful when you want live stdout in the terminal)
+green run
+```
+
+From the **Claude Code Bash tool** (which uses nushell):
+```nu
+nu --no-config-file -c "use scripts/green.nu *; green restart"
+```
+
+#### How it works
+
+`green start` uses `setsid --fork` to place the server in a new OS session, making it a
+child of PID 1. It survives when the calling session exits. `green stop` uses
+`pkill --signal SIGTERM --full <abs-config-path>` to find and kill all matching processes
+by their full command line — this works across sessions and nushell instances.
+
+**Important:** `green stop` matches processes by the **absolute** config file path. Always
+use `green start`/`green stop` rather than launching `cargo run` manually, or the stop
+command won't find the process.
+
+#### Log files
+
+Both files are truncated on every `green start` so `tail -f` always reflects the current run:
+
+| File | Contents |
+|------|----------|
+| `logs.ndjson` | Structured JSON tracing output from the running server (stdout) |
+| `errors.log` | `cargo build` output, panics, and server stderr |
+
+#### Sentinel file
+
+`.watch_state.toml` (gitignored) records `config_path` and `started_at`. Its presence
+indicates a server is running; `green start` stops any existing instance before starting a
+new one; `green stop` removes it.
+
+#### Typical workflow
+
+```
+# Initial setup (from the "phone" Zellij session — errors tab runs this automatically):
+nu scripts/dev.nu          # starts server + tails errors.log
+
+# After editing code:
+nu --no-config-file -c "use scripts/green.nu *; green restart"
+
+# Check if the server is up:
+curl http://localhost:10000/healthcheck
+```
+
+#### Zellij "phone" session
+
+The project includes a Zellij layout for remote development from iOS (via Termion/SSH):
+```
+zellij --session phone --layout scripts/phone.kdl
+```
+
+Three tabs:
+- **claude** — Claude Code (focused by default)
+- **errors** — runs `nu scripts/dev.nu`; starts the server then tails `errors.log`
+- **logs** — `tail -f logs.ndjson` (structured tracing from the running binary)
+
+### Build and Run (direct)
 ```bash
 # Build the project
 cargo build

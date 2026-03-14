@@ -13,7 +13,7 @@ layout {
     tab name="claude" cwd="." focus=true {
         pane borderless=true command="claude"
     }
-    tab name="watch" cwd="." {
+    tab name="errors" cwd="." {
         pane borderless=true command="nu" {
             args "scripts/dev.nu"
         }
