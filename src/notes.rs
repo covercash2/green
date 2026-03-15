@@ -960,6 +960,7 @@ mod tests {
             tailscale_socket: Arc::from(Path::new("/tmp/fake.sock")),
             notes_store,
             auth_state: None,
+            mqtt_state: None,
         }
     }
 

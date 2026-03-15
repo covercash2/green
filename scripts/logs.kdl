@@ -17,8 +17,8 @@ layout {
     }
 
     tab name="logs" cwd="~/github/covercash2/green/" {
-        pane borderless=true command="tail" {
-            args "-f" "logs.ndjson"
+        pane borderless=true command="nu" {
+            args "overlay" "use" "scripts/green.nu" ";" "green" "logs" "tail"
         }
     }
 }

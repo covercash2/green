@@ -80,6 +80,12 @@ pub enum Error {
 
     #[error("invalid or expired recovery code")]
     InvalidRecoveryCode,
+
+    #[error("failed to connect to MQTT broker: {source}")]
+    MqttConnect { source: rumqttc::ClientError },
+
+    #[error("mqtt not configured")]
+    MqttNotConfigured,
 }
 
 impl IntoResponse for Error {
@@ -93,7 +99,9 @@ impl IntoResponse for Error {
             }
             Error::TailscaleConnect { .. }
             | Error::TailscaleParse(_)
-            | Error::TailscaleDeserialize { .. } => StatusCode::BAD_GATEWAY,
+            | Error::TailscaleDeserialize { .. }
+            | Error::MqttConnect { .. } => StatusCode::BAD_GATEWAY,
+            Error::MqttNotConfigured => StatusCode::NOT_FOUND,
             Error::EnvLevel { .. }
             | Error::DeserializeTomlFile { .. }
             | Error::TemplateRender { .. }

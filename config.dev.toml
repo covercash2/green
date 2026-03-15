@@ -10,6 +10,10 @@ db_url = "postgres://green:devpassword@localhost/green"
 gm_users = ["chrash"]
 ntfy_url = "http://localhost:8083/green-recovery"
 
+[mqtt]
+host = "localhost"
+port = 1883
+
 [routes.foundry]
 url = "foundry.green.chrash.net"
 description = "Foundry VTT for D&D games"

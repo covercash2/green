@@ -6,4 +6,8 @@
 use green.nu *
 
 green start
-tail -f errors.log
+
+(tail -f errors.log
+  | lines
+  | each {|line| log $"[errors.log] {line}"}
+)

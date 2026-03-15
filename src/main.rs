@@ -45,6 +45,7 @@ mod breaker_detail;
 mod error;
 mod index;
 mod io;
+mod mqtt;
 mod notes;
 mod qr;
 mod route;
@@ -113,6 +114,16 @@ pub enum Route {
     #[serde(rename = "/auth/register")]
     #[strum(serialize = "/auth/register")]
     AuthRegister,
+
+    /// MQTT live-feed page (GM only).
+    #[serde(rename = "/mqtt")]
+    #[strum(serialize = "/mqtt")]
+    Mqtt,
+
+    /// SSE stream of live MQTT messages (GM only).
+    #[serde(rename = "/api/mqtt/stream")]
+    #[strum(serialize = "/api/mqtt/stream")]
+    MqttStream,
 }
 
 impl Route {
@@ -139,6 +150,8 @@ pub struct ServerState {
     pub notes_store: Option<Arc<notes::NotesStore>>,
     /// WebAuthn authentication state, or `None` if auth is not configured.
     pub auth_state: Option<Arc<auth::AuthState>>,
+    /// MQTT broadcast state, or `None` if mqtt is not configured.
+    pub mqtt_state: Option<Arc<mqtt::MqttState>>,
 }
 
 impl ServerState {
@@ -173,6 +186,16 @@ impl ServerState {
             None
         };
 
+        let mqtt_state = if let Some(ref mqtt_config) = config.mqtt {
+            let (tx, _) = tokio::sync::broadcast::channel(256);
+            let task_tx = tx.clone();
+            let task_config = mqtt_config.clone();
+            let _ = tokio::spawn(async move { mqtt::run_mqtt_task(task_config, task_tx).await });
+            Some(Arc::new(mqtt::MqttState { tx }))
+        } else {
+            None
+        };
+
         Ok(ServerState {
             certificate: Arc::from(ca_content),
             breaker_content,
@@ -181,6 +204,7 @@ impl ServerState {
             tailscale_socket: Arc::from(config.tailscale_socket.as_path()),
             notes_store,
             auth_state,
+            mqtt_state,
         })
     }
 }
@@ -206,6 +230,8 @@ fn build_router(state: ServerState) -> axum::Router {
         .route("/auth/logout", axum::routing::post(auth::logout))
         .route("/auth/recover", get(auth::recover_page).post(auth::start_recovery))
         .route("/auth/recover/verify", axum::routing::post(auth::verify_recovery))
+        .route(Route::Mqtt.as_str(), get(mqtt::mqtt_page_route))
+        .route(Route::MqttStream.as_str(), get(mqtt::mqtt_stream_route))
         .nest_service("/assets", ServeDir::new("assets"))
         .layer(
             TraceLayer::new_for_http()
@@ -254,6 +280,9 @@ pub struct Config {
     /// WebAuthn / passkey auth configuration. If absent, auth is disabled.
     #[serde(default)]
     pub auth: Option<auth::AuthConfig>,
+    /// MQTT broker configuration. If absent, the MQTT page returns 404.
+    #[serde(default)]
+    pub mqtt: Option<mqtt::MqttConfig>,
 }
 
 impl Config {
