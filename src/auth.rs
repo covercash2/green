@@ -54,6 +54,7 @@ pub struct AuthConfig {
 
 // ─── Session storage ───────────────────────────────────────────────────────
 
+#[derive(Debug)]
 pub struct SessionData {
     pub user_id: Uuid,
     pub username: String,
@@ -154,7 +155,7 @@ impl AuthState {
             None => Ok(None),
             Some(row) => {
                 let id: Uuid = row.get("id");
-                let credentials: serde_json::Value = row.get("credentials");
+                let credentials: Value = row.get("credentials");
                 let passkeys: Vec<Passkey> = serde_json::from_value(credentials)
                     .map_err(|e| Error::Database(format!("failed to deserialize passkeys: {e}")))?;
                 Ok(Some((id, passkeys)))
@@ -177,9 +178,13 @@ impl AuthState {
         let credentials = serde_json::to_value(passkeys)
             .map_err(|e| Error::Database(format!("failed to serialize passkeys: {e}")))?;
 
-        let mut tx = self.db.begin().await.map_err(|e| Error::Database(e.to_string()))?;
+        let mut tx = self
+            .db
+            .begin()
+            .await
+            .map_err(|e| Error::Database(e.to_string()))?;
 
-        sqlx::query(
+        let _ = sqlx::query(
             "INSERT INTO users (id, username, display_name, role) \
              VALUES ($1, $2, $3, $4) \
              ON CONFLICT (username) DO UPDATE SET display_name = EXCLUDED.display_name, role = EXCLUDED.role",
@@ -192,7 +197,7 @@ impl AuthState {
         .await
         .map_err(|e| Error::Database(e.to_string()))?;
 
-        sqlx::query(
+        let _ = sqlx::query(
             "INSERT INTO passkeys (user_id, credentials, updated_at) \
              VALUES ($1, $2, NOW()) \
              ON CONFLICT (user_id) DO UPDATE SET credentials = EXCLUDED.credentials, updated_at = NOW()",
@@ -203,7 +208,9 @@ impl AuthState {
         .await
         .map_err(|e| Error::Database(e.to_string()))?;
 
-        tx.commit().await.map_err(|e| Error::Database(e.to_string()))?;
+        tx.commit()
+            .await
+            .map_err(|e| Error::Database(e.to_string()))?;
 
         Ok(())
     }
@@ -309,8 +316,7 @@ impl FromRequestParts<ServerState> for GmUser {
         parts: &mut Parts,
         state: &ServerState,
     ) -> Result<Self, Self::Rejection> {
-        let user = AuthUser::from_request_parts(parts, state)
-            .await?; // propagates the /auth/login redirect if unauthenticated
+        let user = AuthUser::from_request_parts(parts, state).await?; // propagates the /auth/login redirect if unauthenticated
         if user.role != Role::Gm {
             return Err(Error::Forbidden.into_response());
         }
@@ -375,11 +381,7 @@ pub struct StartAuthRequest {
 // ─── Handlers ─────────────────────────────────────────────────────────────
 
 use askama::Template;
-use axum::{
-    Json,
-    extract::State,
-    response::Html,
-};
+use axum::{Json, extract::State, response::Html};
 use serde_json::Value;
 
 #[derive(Template)]
@@ -397,11 +399,23 @@ pub struct RegisterPage {
 }
 
 pub async fn login_page(State(_s): State<ServerState>) -> Result<Html<String>, Error> {
-    Ok(Html(LoginPage { version: crate::VERSION, auth_user: None }.render()?))
+    Ok(Html(
+        LoginPage {
+            version: crate::VERSION,
+            auth_user: None,
+        }
+        .render()?,
+    ))
 }
 
 pub async fn register_page(State(_s): State<ServerState>) -> Result<Html<String>, Error> {
-    Ok(Html(RegisterPage { version: crate::VERSION, auth_user: None }.render()?))
+    Ok(Html(
+        RegisterPage {
+            version: crate::VERSION,
+            auth_user: None,
+        }
+        .render()?,
+    ))
 }
 
 pub async fn start_registration(
@@ -425,10 +439,12 @@ pub async fn start_registration(
 
     {
         let mut states = auth.reg_states.lock().await;
-        states.insert(req.username.clone(), (reg_state, Instant::now()));
+        let _ = states.insert(req.username.clone(), (reg_state, Instant::now()));
     }
 
-    Ok(Json(serde_json::to_value(ccr).map_err(|e| Error::WebAuthn(e.to_string()))?))
+    Ok(Json(
+        serde_json::to_value(ccr).map_err(|e| Error::WebAuthn(e.to_string()))?,
+    ))
 }
 
 pub async fn finish_registration(
@@ -471,7 +487,8 @@ pub async fn finish_registration(
 
     passkeys.push(passkey);
     let role = auth.role_for(&username);
-    auth.save_passkeys(user_id, &username, &username, &role, &passkeys).await?;
+    auth.save_passkeys(user_id, &username, &username, &role, &passkeys)
+        .await?;
 
     tracing::info!(username, "user registered passkey");
 
@@ -480,12 +497,15 @@ pub async fn finish_registration(
     let token = Uuid::new_v4().to_string();
     {
         let mut sessions = auth.session_store.write().await;
-        sessions.insert(token.clone(), SessionData {
-            user_id,
-            username: username.clone(),
-            role,
-            created_at: Instant::now(),
-        });
+        let _ = sessions.insert(
+            token.clone(),
+            SessionData {
+                user_id,
+                username: username.clone(),
+                role,
+                created_at: Instant::now(),
+            },
+        );
     }
 
     let jar = CookieJar::new().add(make_session_cookie(token));
@@ -504,7 +524,9 @@ pub async fn start_authentication(
         .ok_or_else(|| Error::WebAuthn("no passkeys registered for this user".into()))?;
 
     if passkeys.is_empty() {
-        return Err(Error::WebAuthn("no passkeys registered for this user".into()));
+        return Err(Error::WebAuthn(
+            "no passkeys registered for this user".into(),
+        ));
     }
 
     auth.cleanup_auth_states().await;
@@ -516,10 +538,12 @@ pub async fn start_authentication(
 
     {
         let mut states = auth.auth_states.lock().await;
-        states.insert(req.username.clone(), (auth_state, Instant::now()));
+        let _ = states.insert(req.username.clone(), (auth_state, Instant::now()));
     }
 
-    Ok(Json(serde_json::to_value(rcr).map_err(|e| Error::WebAuthn(e.to_string()))?))
+    Ok(Json(
+        serde_json::to_value(rcr).map_err(|e| Error::WebAuthn(e.to_string()))?,
+    ))
 }
 
 pub async fn finish_authentication(
@@ -565,11 +589,12 @@ pub async fn finish_authentication(
         .ok_or_else(|| Error::WebAuthn("user not found after auth".into()))?;
 
     for pk in &mut passkeys {
-        pk.update_credential(&auth_result);
+        let _ = pk.update_credential(&auth_result);
     }
 
     let role = auth.role_for(&username);
-    auth.save_passkeys(user_id, &username, &username, &role, &passkeys).await?;
+    auth.save_passkeys(user_id, &username, &username, &role, &passkeys)
+        .await?;
 
     tracing::info!(username, ?role, "user logged in");
 
@@ -577,35 +602,35 @@ pub async fn finish_authentication(
     let token = Uuid::new_v4().to_string();
     {
         let mut sessions = auth.session_store.write().await;
-        sessions.insert(token.clone(), SessionData {
-            user_id,
-            username: username.clone(),
-            role,
-            created_at: Instant::now(),
-        });
+        let _ = sessions.insert(
+            token.clone(),
+            SessionData {
+                user_id,
+                username: username.clone(),
+                role,
+                created_at: Instant::now(),
+            },
+        );
     }
 
     let jar = jar.add(make_session_cookie(token));
     Ok((jar, Redirect::to("/")))
 }
 
-pub async fn logout(
-    State(s): State<ServerState>,
-    jar: CookieJar,
-) -> (CookieJar, Redirect) {
-    if let Some(auth) = s.auth_state.as_ref() {
-        if let Some(token) = jar.get(SESSION_COOKIE).map(|c| c.value().to_owned()) {
-            let username = {
-                let store = auth.session_store.read().await;
-                store.get(&token).map(|s| s.username.clone())
-            };
-            {
-                let mut store = auth.session_store.write().await;
-                store.remove(&token);
-            }
-            if let Some(username) = username {
-                tracing::info!(username, "user logged out");
-            }
+pub async fn logout(State(s): State<ServerState>, jar: CookieJar) -> (CookieJar, Redirect) {
+    if let Some(auth) = s.auth_state.as_ref()
+        && let Some(token) = jar.get(SESSION_COOKIE).map(|c| c.value().to_owned())
+    {
+        let username = {
+            let store = auth.session_store.read().await;
+            store.get(&token).map(|s| s.username.clone())
+        };
+        {
+            let mut store = auth.session_store.write().await;
+            let _ = store.remove(&token);
+        }
+        if let Some(username) = username {
+            tracing::info!(username, "user logged out");
         }
     }
     let jar = jar.add(clear_session_cookie());
@@ -633,7 +658,13 @@ pub struct RecoveryPage {
 }
 
 pub async fn recover_page(State(_s): State<ServerState>) -> Result<Html<String>, Error> {
-    Ok(Html(RecoveryPage { version: crate::VERSION, auth_user: None }.render()?))
+    Ok(Html(
+        RecoveryPage {
+            version: crate::VERSION,
+            auth_user: None,
+        }
+        .render()?,
+    ))
 }
 
 fn generate_otc() -> String {
@@ -642,7 +673,9 @@ fn generate_otc() -> String {
     let mut code = String::with_capacity(6);
     while code.len() < 6 {
         for &b in Uuid::new_v4().into_bytes().iter() {
-            if code.len() == 6 { break; }
+            if code.len() == 6 {
+                break;
+            }
             if b < 252 {
                 code.push(CHARSET[(b as usize) % 36] as char);
             }
@@ -658,15 +691,22 @@ pub async fn start_recovery(
     let auth = s.auth_state.as_ref().ok_or(Error::NotFound)?;
 
     // Check user exists but don't reveal the result (anti-enumeration)
-    let user_exists = auth.load_passkeys(&req.username).await.is_ok_and(|r| r.is_some());
+    let user_exists = auth
+        .load_passkeys(&req.username)
+        .await
+        .is_ok_and(|r| r.is_some());
 
     if user_exists {
         let code = generate_otc();
         auth.cleanup_otc_store().await;
-        auth.otc_store.write().await.insert(req.username.clone(), (code.clone(), Instant::now()));
+        let _ = auth.otc_store
+            .write()
+            .await
+            .insert(req.username.clone(), (code.clone(), Instant::now()));
 
         if let Some(ref ntfy_url) = auth.config.ntfy_url
-            && let Err(e) = auth.http_client
+            && let Err(e) = auth
+                .http_client
                 .post(ntfy_url)
                 .header("Title", "green recovery")
                 .header("Priority", "high")
@@ -712,12 +752,15 @@ pub async fn verify_recovery(
         let mut sessions = auth.session_store.write().await;
         // Invalidate all existing sessions for this user before creating the recovery session.
         sessions.retain(|_, data| data.username != req.username);
-        sessions.insert(token.clone(), SessionData {
-            user_id,
-            username: req.username.clone(),
-            role,
-            created_at: Instant::now(),
-        });
+        let _ = sessions.insert(
+            token.clone(),
+            SessionData {
+                user_id,
+                username: req.username.clone(),
+                role,
+                created_at: Instant::now(),
+            },
+        );
     }
 
     tracing::info!(username = %req.username, "user recovered account via OTC");
@@ -759,10 +802,17 @@ impl AuthState {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use axum::{body::Body, http::{Request, StatusCode}, response::Html, routing::get};
+    use axum::{
+        body::Body,
+        http::{Request, StatusCode},
+        response::Html,
+        routing::get,
+    };
+    use crate::ServerState;
+    use std::path::Path;
     use tower::ServiceExt;
 
-    async fn state_with_auth() -> crate::ServerState {
+    async fn state_with_auth() -> ServerState {
         use crate::{
             breaker::BreakerContent,
             breaker_detail::{BreakerData, BreakerDetailStore, BreakerStore},
@@ -779,32 +829,39 @@ mod tests {
         };
         let auth_state = AuthState::new_for_testing(auth_config).unwrap();
 
-        let data = BreakerData { todos: vec![], slots: std::collections::HashMap::new(), couples: vec![] };
+        let data = BreakerData {
+            todos: vec![],
+            slots: HashMap::new(),
+            couples: vec![],
+        };
         let store = Arc::new(BreakerStore::from_data(data).unwrap());
         let breaker_content = Arc::new(BreakerContent::new(store.as_ref()));
         let breaker_detail_store: Arc<dyn BreakerDetailStore> = store;
         let index = Index::new(Routes::default(), false).await.unwrap();
 
-        crate::ServerState {
+        ServerState {
             certificate: Arc::from("fake-cert"),
             breaker_content,
             breaker_detail_store,
             index,
-            tailscale_socket: Arc::from(std::path::Path::new("/tmp/fake.sock")),
+            tailscale_socket: Arc::from(Path::new("/tmp/fake.sock")),
             notes_store: None,
             auth_state: Some(Arc::new(auth_state)),
         }
     }
 
-    async fn insert_session(state: &crate::ServerState, username: &str, role: Role) -> String {
+    async fn insert_session(state: &ServerState, username: &str, role: Role) -> String {
         let auth = state.auth_state.as_ref().unwrap();
         let token = Uuid::new_v4().to_string();
-        auth.session_store.write().await.insert(token.clone(), SessionData {
-            user_id: Uuid::new_v4(),
-            username: username.to_string(),
-            role,
-            created_at: std::time::Instant::now(),
-        });
+        let _ = auth.session_store.write().await.insert(
+            token.clone(),
+            SessionData {
+                user_id: Uuid::new_v4(),
+                username: username.to_string(),
+                role,
+                created_at: Instant::now(),
+            },
+        );
         token
     }
 
@@ -812,7 +869,7 @@ mod tests {
         Html("ok")
     }
 
-    fn gm_router(state: crate::ServerState) -> axum::Router {
+    fn gm_router(state: ServerState) -> axum::Router {
         axum::Router::new()
             .route("/gm-only", get(gm_only))
             .with_state(state)
@@ -822,7 +879,12 @@ mod tests {
     async fn gm_user_no_session_redirects_to_login() {
         let state = state_with_auth().await;
         let res = gm_router(state)
-            .oneshot(Request::builder().uri("/gm-only").body(Body::empty()).unwrap())
+            .oneshot(
+                Request::builder()
+                    .uri("/gm-only")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
             .await
             .unwrap();
         assert_eq!(res.status(), StatusCode::SEE_OTHER);
@@ -865,7 +927,7 @@ mod tests {
 
     // ── Recovery tests ────────────────────────────────────────────────────────
 
-    fn recovery_router(state: crate::ServerState) -> axum::Router {
+    fn recovery_router(state: ServerState) -> axum::Router {
         axum::Router::new()
             .route("/auth/recover/verify", axum::routing::post(verify_recovery))
             .with_state(state)
@@ -876,13 +938,20 @@ mod tests {
             .method("POST")
             .uri("/auth/recover/verify")
             .header("content-type", "application/json")
-            .body(Body::from(format!(r#"{{"username":"{username}","code":"{code}"}}"#)))
+            .body(Body::from(format!(
+                r#"{{"username":"{username}","code":"{code}"}}"#
+            )))
             .unwrap()
     }
 
-    async fn insert_otc(state: &crate::ServerState, username: &str, code: &str) {
-        state.auth_state.as_ref().unwrap()
-            .otc_store.write().await
+    async fn insert_otc(state: &ServerState, username: &str, code: &str) {
+        let _ = state
+            .auth_state
+            .as_ref()
+            .unwrap()
+            .otc_store
+            .write()
+            .await
             .insert(username.to_string(), (code.to_string(), Instant::now()));
     }
 
@@ -903,7 +972,8 @@ mod tests {
         let state = state_with_auth().await;
         let res = recovery_router(state)
             .oneshot(verify_request("alice", "ABCDEF"))
-            .await.unwrap();
+            .await
+            .unwrap();
         assert_eq!(res.status(), StatusCode::BAD_REQUEST);
     }
 
@@ -913,7 +983,8 @@ mod tests {
         insert_otc(&state, "alice", "ABCDEF").await;
         let res = recovery_router(state)
             .oneshot(verify_request("alice", "XXXXXX"))
-            .await.unwrap();
+            .await
+            .unwrap();
         assert_eq!(res.status(), StatusCode::BAD_REQUEST);
     }
 
@@ -922,13 +993,16 @@ mod tests {
         let state = state_with_auth().await;
         {
             let auth = state.auth_state.as_ref().unwrap();
-            let old = Instant::now() - std::time::Duration::from_secs(601);
-            auth.otc_store.write().await
+            let old = Instant::now() - Duration::from_secs(601);
+            let _ = auth.otc_store
+                .write()
+                .await
                 .insert("alice".to_string(), ("ABCDEF".to_string(), old));
         }
         let res = recovery_router(state)
             .oneshot(verify_request("alice", "ABCDEF"))
-            .await.unwrap();
+            .await
+            .unwrap();
         assert_eq!(res.status(), StatusCode::BAD_REQUEST);
     }
 
@@ -939,8 +1013,11 @@ mod tests {
         insert_otc(&state, "alice", "ABCDEF").await;
         let _ = recovery_router(state)
             .oneshot(verify_request("alice", "XXXXXX"))
-            .await.unwrap();
-        assert!(!auth.otc_store.read().await.contains_key("alice"),
-            "OTC must be consumed even on a wrong-code attempt");
+            .await
+            .unwrap();
+        assert!(
+            !auth.otc_store.read().await.contains_key("alice"),
+            "OTC must be consumed even on a wrong-code attempt"
+        );
     }
 }

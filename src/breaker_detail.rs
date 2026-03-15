@@ -102,8 +102,8 @@ impl BreakerStore {
                 });
             }
 
-            coupled_primaries.insert(pair.primary.clone(), pair.secondary.clone());
-            coupled_secondaries.insert(pair.secondary.clone(), pair.primary.clone());
+            let _ = coupled_primaries.insert(pair.primary.clone(), pair.secondary.clone());
+            let _ = coupled_secondaries.insert(pair.secondary.clone(), pair.primary.clone());
         }
 
         Ok(Self {
