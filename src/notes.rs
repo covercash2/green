@@ -362,7 +362,7 @@ impl NotesStore {
             let path = entry.into_path();
             if path.extension().and_then(|e| e.to_str()) == Some("md") {
                 if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
-                    slug_set.insert(Slug::from_stem(stem));
+                    let _ = slug_set.insert(Slug::from_stem(stem));
                 }
                 md_paths.push(path);
             }
@@ -431,7 +431,7 @@ impl NotesStore {
             if is_session {
                 session_notes.push(note.clone());
             }
-            by_slug.insert(slug, note);
+            let _ = by_slug.insert(slug, note);
         }
 
         world_notes.sort_by(|a, b| a.title.cmp(&b.title));
@@ -579,7 +579,7 @@ mod tests {
     #[test]
     fn slug_borrow_enables_str_lookup() {
         let mut map: HashMap<Slug, &str> = HashMap::new();
-        map.insert(Slug::from_stem("hello world"), "value");
+        let _ = map.insert(Slug::from_stem("hello world"), "value");
         assert_eq!(map.get("hello-world"), Some(&"value"));
     }
 
@@ -802,7 +802,7 @@ mod tests {
     // ── NotesStore::scan ──────────────────────────────────────────────────────
 
     fn fixture_store() -> NotesStore {
-        NotesStore::scan(std::path::Path::new("fixtures/vault"))
+        NotesStore::scan(Path::new("fixtures/vault"))
             .expect("fixtures/vault should scan cleanly")
     }
 
@@ -924,7 +924,7 @@ mod tests {
 
     #[test]
     fn scan_nonexistent_vault_returns_vault_not_directory_error() {
-        let result = NotesStore::scan(std::path::Path::new("fixtures/vault_does_not_exist"));
+        let result = NotesStore::scan(Path::new("fixtures/vault_does_not_exist"));
         assert!(
             matches!(result, Err(NotesStoreError::VaultNotDirectory(_))),
             "expected VaultNotDirectory error"
@@ -933,14 +933,13 @@ mod tests {
 
     // ── HTTP handlers ─────────────────────────────────────────────────────────
 
-    async fn minimal_state(notes_store: Option<Arc<NotesStore>>) -> crate::ServerState {
+    async fn minimal_state(notes_store: Option<Arc<NotesStore>>) -> ServerState {
         use crate::{
             breaker::BreakerContent,
             breaker_detail::{BreakerData, BreakerDetailStore, BreakerStore},
             index::Index,
             route::Routes,
         };
-        use std::collections::HashMap;
 
         let data = BreakerData {
             todos: vec![],
@@ -953,18 +952,18 @@ mod tests {
         let has_notes = notes_store.is_some();
         let index = Index::new(Routes::default(), has_notes).await.unwrap();
 
-        crate::ServerState {
+        ServerState {
             certificate: Arc::from("fake-cert"),
             breaker_content,
             breaker_detail_store,
             index,
-            tailscale_socket: Arc::from(std::path::Path::new("/tmp/fake.sock")),
+            tailscale_socket: Arc::from(Path::new("/tmp/fake.sock")),
             notes_store,
             auth_state: None,
         }
     }
 
-    fn notes_router(state: crate::ServerState) -> axum::Router {
+    fn notes_router(state: ServerState) -> axum::Router {
         axum::Router::new()
             .route("/notes", get(notes_index_route))
             .route("/notes/{slug}", get(notes_detail_route))

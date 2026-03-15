@@ -1,3 +1,28 @@
+//! Green — internal home-services landing page and API hub.
+#![deny(
+    bad_style,
+    dead_code,
+    improper_ctypes,
+    missing_debug_implementations,
+    missing_docs,
+    no_mangle_generic_items,
+    non_shorthand_field_patterns,
+    overflowing_literals,
+    path_statements,
+    patterns_in_fns_without_body,
+    trivial_casts,
+    trivial_numeric_casts,
+    unconditional_recursion,
+    unused,
+    unused_allocation,
+    unused_comparisons,
+    unused_extern_crates,
+    unused_import_braces,
+    unused_parens,
+    unused_qualifications,
+    unused_results,
+    while_true,
+)]
 use std::{
     net::SocketAddr,
     path::{Path, PathBuf},
@@ -25,9 +50,10 @@ mod qr;
 mod route;
 mod tailscale;
 
+/// Application version string (semver + git hash).
 pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+", env!("GIT_HASH"));
 
-/// Static routes for the application
+/// Static routes for the application.
 #[derive(
     Debug,
     Clone,
@@ -41,58 +67,77 @@ pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+", env!("GIT_HASH
     strum::IntoStaticStr,
 )]
 pub enum Route {
+    /// Index page listing all configured home services.
     #[serde(rename = "/")]
     #[strum(serialize = "/")]
     Home,
+    /// CA certificate download endpoint.
     #[serde(rename = "/api/ca")]
     #[strum(serialize = "/api/ca")]
     Certificates,
+    /// Health-check endpoint returning a static string.
     #[serde(rename = "/healthcheck")]
     #[strum(serialize = "/healthcheck")]
     HealthCheck,
+    /// Electrical breaker-box panel (GM only).
     #[serde(rename = "/breaker")]
     #[strum(serialize = "/breaker")]
     BreakerBox,
 
+    /// QR-code generation API endpoint.
     #[serde(rename = "/api/qr")]
     #[strum(serialize = "/api/qr")]
     Qr,
 
+    /// QR-code generator page.
     #[serde(rename = "/qr")]
     #[strum(serialize = "/qr")]
     QrPage,
 
+    /// Tailscale peer list (GM only).
     #[serde(rename = "/tailscale")]
     #[strum(serialize = "/tailscale")]
     Tailscale,
 
+    /// D&D campaign notes vault index.
     #[serde(rename = "/notes")]
     #[strum(serialize = "/notes")]
     Notes,
 
+    /// Passkey login page.
     #[serde(rename = "/auth/login")]
     #[strum(serialize = "/auth/login")]
     AuthLogin,
 
+    /// Passkey registration page.
     #[serde(rename = "/auth/register")]
     #[strum(serialize = "/auth/register")]
     AuthRegister,
 }
 
 impl Route {
+    /// Returns the route's URL path as a static string slice.
     pub fn as_str(&self) -> &'static str {
         self.into()
     }
 }
 
+/// Shared application state threaded through all axum handlers.
 #[derive(Debug, Clone)]
 pub struct ServerState {
+    /// PEM-encoded CA certificate content, served at `/api/ca`.
     pub certificate: Arc<str>,
+    /// Pre-rendered breaker-panel HTML.
     pub breaker_content: Arc<breaker::BreakerContent>,
+    /// Breaker slot data store, used by the detail API.
     pub breaker_detail_store: Arc<dyn BreakerDetailStore>,
+    /// Pre-rendered index page (cloned and augmented per request with `auth_user`).
     pub index: Index,
-    pub tailscale_socket: Arc<std::path::Path>,
+    /// Path to the Tailscale Unix socket.
+    pub tailscale_socket: Arc<Path>,
+    /// Scanned notes vault, or `None` if `vault_path` is not configured.
     pub notes_store: Option<Arc<notes::NotesStore>>,
+    /// WebAuthn authentication state, or `None` if auth is not configured.
     pub auth_state: Option<Arc<auth::AuthState>>,
 }
 
@@ -179,6 +224,7 @@ async fn ca_route(State(state): State<ServerState>) -> String {
     format!("{}", state.certificate)
 }
 
+/// Command-line arguments.
 #[derive(Debug, Clone, Parser)]
 pub struct Cli {
     /// path to the config file
@@ -186,6 +232,7 @@ pub struct Cli {
     pub config_path: PathBuf,
 }
 
+/// Application configuration loaded from a TOML file.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Config {
     /// path to the CA file
@@ -195,17 +242,23 @@ pub struct Config {
     /// log level for the application
     #[serde(default = "default_log_level")]
     pub log_level: String,
+    /// Dynamically-configured service routes shown on the index page.
     #[serde(default)]
     pub routes: Routes,
+    /// Path to the Tailscale Unix socket.
     #[serde(default = "default_tailscale_socket")]
     pub tailscale_socket: PathBuf,
+    /// Optional path to the Obsidian notes vault directory.
     #[serde(default)]
     pub vault_path: Option<PathBuf>,
+    /// WebAuthn / passkey auth configuration. If absent, auth is disabled.
     #[serde(default)]
     pub auth: Option<auth::AuthConfig>,
 }
 
 impl Config {
+    /// Load configuration from `path`, then override `auth.db_url` with the
+    /// `GREEN_DB_URL` environment variable if set.
     pub async fn load(path: impl AsRef<Path>) -> Result<Self, Error> {
         let mut config: Self = load_toml_file(&path.as_ref().to_path_buf()).await?;
         // Allow overriding the database URL via environment variable so that

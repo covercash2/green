@@ -136,7 +136,7 @@ async fn fetch_status(socket_path: &Path) -> Result<TailscaleStatus, Error> {
         .map_err(|source| Error::TailscaleConnect { source })?;
 
     let mut response = Vec::new();
-    stream
+    let _ = stream
         .read_to_end(&mut response)
         .await
         .map_err(|source| Error::TailscaleConnect { source })?;
@@ -159,7 +159,7 @@ pub async fn tailscale_route(
     let mut peers: Vec<TailscalePeer> = status.peer.drain().map(|(_, v)| v).collect();
     peers.sort_by(|a, b| a.host_name.cmp(&b.host_name));
 
-    let auth_user = Some(crate::auth::AuthUserInfo {
+    let auth_user = Some(AuthUserInfo {
         username: user.0.username.clone(),
         role: user.0.role.clone(),
     });
