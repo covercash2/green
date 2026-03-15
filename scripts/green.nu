@@ -170,6 +170,26 @@ export def "green ca" [
     http get $"($address)/api/ca"
 }
 
+export def "green logs tail" [
+  --raw # if set, print logs without attempting to parse JSON
+] {
+  if $raw {
+    tail --follow $log_file
+  } else {
+    (tail --follow $log_file
+    | lines
+    | each {|entry|
+        try {
+          let log = ($entry | from json)
+          print $log
+        } catch {
+          log $"[malformed] ($entry)"
+        }
+      }
+    )
+  }
+}
+
 def "complete-addresses" [] {
     [$LOCAL_ADDRESS]
 }

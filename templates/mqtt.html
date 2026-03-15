@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+
+{% block title %}mqtt{% endblock %}
+
+{% block content %}
+<a href="/" class="leet-link">&larr; back</a>
+<h1 class="leet-h1">mqtt live feed</h1>
+
+<div class="mqtt-status-bar">
+    <span id="mqtt-status-dot" class="mqtt-dot mqtt-dot-connecting"></span>
+    <span id="mqtt-status-text" class="mqtt-status-text">connecting…</span>
+</div>
+
+<table class="mqtt-table" id="mqtt-table">
+    <thead>
+        <tr>
+            <th class="mqtt-th">topic</th>
+            <th class="mqtt-th">payload</th>
+            <th class="mqtt-th">received</th>
+        </tr>
+    </thead>
+    <tbody id="mqtt-tbody">
+    </tbody>
+</table>
+{% endblock %}
+
+{% block scripts %}
+<script type="module" src="/assets/js/mqtt.js"></script>
+{% endblock %}
