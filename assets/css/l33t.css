@@ -780,8 +780,8 @@
     display: flex;
     align-items: center;
     gap: 0.5rem;
-    margin: 0.75rem 0 1rem;
-    font-size: 0.8rem;
+    margin: 0.75rem 0 0.75rem;
+    font-size: 0.85rem;
 }
 
 .mqtt-dot {
@@ -792,49 +792,173 @@
     flex-shrink: 0;
 }
 
-.mqtt-dot-connecting { background: var(--color-fg-dim); box-shadow: 0 0 4px var(--color-fg-dim); }
+.mqtt-dot-connecting { background: var(--color-fg-dim); box-shadow: 0 0 4px var(--color-fg-dim); animation: mqtt-blink 1.2s ease-in-out infinite; }
 .mqtt-dot-connected  { background: #00ff88; box-shadow: 0 0 6px #00ff88; }
 .mqtt-dot-error      { background: #ff4444; box-shadow: 0 0 6px #ff4444; }
 
-.mqtt-status-text {
-    opacity: 0.7;
+@keyframes mqtt-blink {
+    0%, 100% { opacity: 1; }
+    50%       { opacity: 0.25; }
 }
 
-.mqtt-table {
-    width: 100%;
-    border-collapse: collapse;
+.mqtt-status-text {
+    opacity: 0.65;
     font-size: 0.8rem;
 }
 
-.mqtt-th {
-    text-align: left;
-    border-bottom: 1px solid var(--color-border);
-    padding: 0.3rem 0.5rem;
-    color: var(--color-heading);
-    text-shadow: 0 0 6px var(--color-heading-glow);
-    font-weight: normal;
+.mqtt-filter-bar {
+    margin-bottom: 0.75rem;
 }
 
-.mqtt-td {
-    padding: 0.25rem 0.5rem;
-    border-bottom: 1px solid rgba(51, 255, 51, 0.12);
-    vertical-align: top;
-    word-break: break-all;
+.mqtt-filter {
+    width: 100%;
+    box-sizing: border-box;
+    font-family: var(--font-mono);
+    font-size: 1rem;
+    background: var(--color-bg-item);
+    color: var(--color-fg);
+    border: 1px dashed var(--color-border);
+    padding: 0.55rem 0.75rem;
+    outline: none;
 }
 
-.mqtt-topic {
+.mqtt-filter:focus {
+    border-style: solid;
+}
+
+.mqtt-filter::placeholder {
+    opacity: 0.3;
+}
+
+.mqtt-feed {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+}
+
+.mqtt-msg {
+    background: var(--color-bg-item);
+    border: 1px solid rgba(51, 255, 51, 0.15);
+    padding: 0.6rem 0.75rem;
+    min-width: 0;
+}
+
+@keyframes mqtt-flash {
+    from { border-color: rgba(0, 255, 136, 0.7); }
+    to   { border-color: rgba(51, 255, 51, 0.15); }
+}
+
+.mqtt-msg-new {
+    animation: mqtt-flash 0.8s ease-out forwards;
+}
+
+.mqtt-msg-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 0.5rem;
+    margin-bottom: 0.35rem;
+    min-width: 0;
+}
+
+.mqtt-msg-topic {
     color: var(--color-accent);
+    font-size: 0.8rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
     white-space: nowrap;
-    width: 30%;
+    flex: 1;
+    min-width: 0;
 }
 
-.mqtt-payload {
-    width: 50%;
-}
-
-.mqtt-ts {
-    opacity: 0.55;
-    white-space: nowrap;
-    width: 20%;
+.mqtt-msg-time {
+    color: var(--color-fg);
+    opacity: 0.35;
     font-size: 0.72rem;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+.mqtt-msg-body {
+    margin: 0;
+    font-family: var(--font-mono);
+    font-size: 0.78rem;
+    color: var(--color-fg-dim);
+    white-space: pre-wrap;
+    word-break: break-all;
+    line-height: 1.45;
+}
+
+.mqtt-msg-toggle {
+    background: transparent;
+    border: none;
+    color: var(--color-accent);
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    cursor: pointer;
+    padding: 0.2rem 0;
+    opacity: 0.55;
+    display: block;
+    margin-top: 0.25rem;
+}
+
+.mqtt-msg-toggle:hover {
+    opacity: 1;
+}
+
+/* Expand/collapse for truncated payloads — no JS, pure HTML <details> */
+.mqtt-msg-expand {
+    margin: 0;
+}
+
+.mqtt-msg-expand > summary {
+    font-family: var(--font-mono);
+    font-size: 0.78rem;
+    color: var(--color-fg-dim);
+    white-space: pre-wrap;
+    word-break: break-all;
+    line-height: 1.45;
+    cursor: pointer;
+    list-style: none;
+}
+
+.mqtt-msg-expand > summary::marker,
+.mqtt-msg-expand > summary::-webkit-details-marker {
+    display: none;
+}
+
+.mqtt-msg-expand > summary::after {
+    content: ' ▸';
+    color: var(--color-accent);
+    font-size: 0.72rem;
+    opacity: 0.6;
+}
+
+.mqtt-msg-expand[open] > summary::after {
+    content: ' ▾';
+}
+
+/* Key-value grid — shown when the payload is a JSON object */
+.mqtt-msg-kv {
+    display: grid;
+    grid-template-columns: max-content 1fr;
+    gap: 0.05rem 0.75rem;
+    margin: 0;
+    padding: 0;
+    font-family: var(--font-mono);
+    font-size: 0.78rem;
+    line-height: 1.5;
+}
+
+.mqtt-kv-key {
+    color: var(--color-fg-dim);
+    opacity: 0.5;
+    white-space: nowrap;
+    user-select: none;
+}
+
+.mqtt-kv-value {
+    color: var(--color-fg);
+    word-break: break-all;
+    min-width: 0;
 }

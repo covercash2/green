@@ -950,7 +950,7 @@ mod tests {
         let breaker_detail_store: Arc<dyn BreakerDetailStore> = store.clone();
         let breaker_content = Arc::new(BreakerContent::new(store.as_ref()));
         let has_notes = notes_store.is_some();
-        let index = Index::new(Routes::default(), has_notes).await.unwrap();
+        let index = Index::new(Routes::default(), has_notes, false).await.unwrap();
 
         ServerState {
             certificate: Arc::from("fake-cert"),

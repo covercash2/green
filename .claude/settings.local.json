@@ -30,7 +30,10 @@
       "Bash(nu:*)",
       "Bash(nix search:*)",
       "Bash(nix develop:*)",
-      "Bash(grep:*)"
+      "Bash(grep:*)",
+      "Bash(npm run:*)",
+      "Bash(mosquitto_sub:*)",
+      "Bash(timeout 8 mosquitto_sub:*)"
     ]
   }
 }

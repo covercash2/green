@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { authenticate } from '../../assets/js/auth-login.js';
+import { authenticateDiscoverable } from '../../assets/js/auth-login.js';
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -16,108 +16,127 @@ function err(msg, status = 400) {
     return { ok: false, status, text: async () => msg, json: async () => ({ error: msg }) };
 }
 
-// ── tests ─────────────────────────────────────────────────────────────────────
+// ── authenticateDiscoverable ──────────────────────────────────────────────────
 
-test('rejects empty username', async () => {
-    await assert.rejects(
-        () => authenticate('', { startAuthentication: () => {} }),
-        /enter your username/,
-    );
-});
-
-test('rejects whitespace-only username', async () => {
-    await assert.rejects(
-        () => authenticate('   ', { startAuthentication: () => {} }),
-        /enter your username/,
-    );
-});
-
-test('happy path returns redirect URL', async () => {
-    const calls = [];
-    const mockFetch = async (url, opts) => {
-        calls.push({ url, body: JSON.parse(opts.body) });
-        if (url.includes('challenge')) return okJson({ publicKey: { challenge: 'abc123', timeout: 60000 } });
-        if (url.includes('finish')) return okEmpty();
+test('authenticateDiscoverable posts to discoverable endpoints', async () => {
+    const urls = [];
+    const mockFetch = async (url) => {
+        urls.push(url);
+        if (!url.includes('finish')) return okJson({ publicKey: {}, challenge_id: 'id-1' });
+        return okEmpty();
     };
-    const mockStartAuth = async ({ optionsJSON }) => {
-        assert.deepEqual(optionsJSON, { challenge: 'abc123', timeout: 60000 });
-        return { id: 'cred-id', type: 'public-key' };
-    };
-
-    const redirect = await authenticate('alice', {
-        startAuthentication: mockStartAuth,
+    const redirect = await authenticateDiscoverable({
+        startAuthentication: async () => ({ id: 'cred' }),
         fetch: mockFetch,
     });
-
     assert.equal(redirect, '/');
-    assert.equal(calls.length, 2);
-    assert.match(calls[0].url, /challenge/);
-    assert.equal(calls[0].body.username, 'alice');
-    assert.match(calls[1].url, /finish/);
-    assert.equal(calls[1].body.username, 'alice');
-    assert.deepEqual(calls[1].body.credential, { id: 'cred-id', type: 'public-key' });
+    assert.equal(urls[0], '/auth/login/challenge/discoverable');
+    assert.equal(urls[1], '/auth/login/finish/discoverable');
 });
 
-test('throws on challenge HTTP error', async () => {
-    const mockFetch = async () => err('unknown user');
+test('authenticateDiscoverable does NOT pass useBrowserAutofill', async () => {
+    let capturedOpts;
+    await authenticateDiscoverable({
+        startAuthentication: async (opts) => { capturedOpts = opts; return {}; },
+        fetch: async (url) => {
+            if (!url.includes('finish')) return okJson({ publicKey: {}, challenge_id: 'x' });
+            return okEmpty();
+        },
+    });
+    assert.equal(capturedOpts.useBrowserAutofill, undefined);
+});
+
+test('authenticateDiscoverable returns / by default', async () => {
+    const redirect = await authenticateDiscoverable({
+        startAuthentication: async () => ({}),
+        fetch: async (url) => {
+            if (!url.includes('finish')) return okJson({ publicKey: {}, challenge_id: 'x' });
+            return okEmpty();
+        },
+    });
+    assert.equal(redirect, '/');
+});
+
+test('authenticateDiscoverable returns the provided next URL', async () => {
+    const redirect = await authenticateDiscoverable({
+        startAuthentication: async () => ({}),
+        fetch: async (url) => {
+            if (!url.includes('finish')) return okJson({ publicKey: {}, challenge_id: 'x' });
+            return okEmpty();
+        },
+        next: '/breaker',
+    });
+    assert.equal(redirect, '/breaker');
+});
+
+test('authenticateDiscoverable passes challengeId to finish endpoint', async () => {
+    const bodies = [];
+    await authenticateDiscoverable({
+        startAuthentication: async () => ({ id: 'cred' }),
+        fetch: async (url, opts) => {
+            if (opts?.body) bodies.push(JSON.parse(opts.body));
+            if (!url.includes('finish')) return okJson({ publicKey: {}, challenge_id: 'uuid-123' });
+            return okEmpty();
+        },
+    });
+    assert.equal(bodies[0].challenge_id, 'uuid-123');
+});
+
+test('authenticateDiscoverable throws on challenge failure', async () => {
     await assert.rejects(
-        () => authenticate('alice', { startAuthentication: () => {}, fetch: mockFetch }),
-        /unknown user/,
+        () => authenticateDiscoverable({
+            startAuthentication: async () => ({}),
+            fetch: async () => err('server error'),
+        }),
+        /server error/,
     );
 });
 
-test('throws with fallback message when challenge body is empty', async () => {
-    const mockFetch = async () => err('');
+test('authenticateDiscoverable throws with fallback message when challenge body is empty', async () => {
     await assert.rejects(
-        () => authenticate('alice', { startAuthentication: () => {}, fetch: mockFetch }),
+        () => authenticateDiscoverable({
+            startAuthentication: async () => ({}),
+            fetch: async () => err(''),
+        }),
         /challenge failed/,
     );
 });
 
-test('throws when startAuthentication rejects', async () => {
-    const mockFetch = async (url) => {
-        if (url.includes('challenge')) return okJson({ publicKey: { challenge: 'abc' } });
-        return okEmpty();
-    };
-    const mockStartAuth = async () => { throw new Error('user cancelled'); };
+test('authenticateDiscoverable throws when startAuthentication rejects', async () => {
     await assert.rejects(
-        () => authenticate('alice', { startAuthentication: mockStartAuth, fetch: mockFetch }),
+        () => authenticateDiscoverable({
+            startAuthentication: async () => { throw new Error('user cancelled'); },
+            fetch: async (url) => {
+                if (!url.includes('finish')) return okJson({ publicKey: {}, challenge_id: 'x' });
+                return okEmpty();
+            },
+        }),
         /user cancelled/,
     );
 });
 
-test('throws on finish HTTP error', async () => {
-    const mockFetch = async (url) => {
-        if (url.includes('challenge')) return okJson({ publicKey: { challenge: 'abc' } });
-        return err('server rejected credential');
-    };
-    const mockStartAuth = async () => ({ id: 'cred-id' });
+test('authenticateDiscoverable throws on finish failure', async () => {
     await assert.rejects(
-        () => authenticate('alice', { startAuthentication: mockStartAuth, fetch: mockFetch }),
-        /server rejected credential/,
+        () => authenticateDiscoverable({
+            startAuthentication: async () => ({}),
+            fetch: async (url) => {
+                if (!url.includes('finish')) return okJson({ publicKey: {}, challenge_id: 'x' });
+                return err('auth rejected');
+            },
+        }),
+        /auth rejected/,
     );
 });
 
-test('throws with fallback message when finish body is empty', async () => {
-    const mockFetch = async (url) => {
-        if (url.includes('challenge')) return okJson({ publicKey: { challenge: 'abc' } });
-        return err('');
-    };
-    const mockStartAuth = async () => ({ id: 'cred-id' });
+test('authenticateDiscoverable throws with fallback message when finish body is empty', async () => {
     await assert.rejects(
-        () => authenticate('alice', { startAuthentication: mockStartAuth, fetch: mockFetch }),
+        () => authenticateDiscoverable({
+            startAuthentication: async () => ({}),
+            fetch: async (url) => {
+                if (!url.includes('finish')) return okJson({ publicKey: {}, challenge_id: 'x' });
+                return err('');
+            },
+        }),
         /authentication failed/,
     );
-});
-
-test('posts to the correct endpoints', async () => {
-    const urls = [];
-    const mockFetch = async (url, opts) => {
-        urls.push(url);
-        if (url.includes('challenge')) return okJson({});
-        return okEmpty();
-    };
-    await authenticate('bob', { startAuthentication: async () => ({}), fetch: mockFetch });
-    assert.equal(urls[0], '/auth/login/challenge');
-    assert.equal(urls[1], '/auth/login/finish');
 });

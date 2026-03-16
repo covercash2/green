@@ -12,8 +12,6 @@ use crate::{auth::{AuthUserInfo, GmUser}, error::Error, ServerState};
 pub struct TailscaleStatus {
     pub version: String,
     pub backend_state: String,
-    #[serde(rename = "TailscaleIPs")]
-    pub _tailscale_ips: Option<Vec<String>>,
     #[serde(rename = "Self")]
     pub self_peer: TailscalePeer,
     #[serde(default)]

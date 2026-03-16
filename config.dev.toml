@@ -13,6 +13,8 @@ ntfy_url = "http://localhost:8083/green-recovery"
 [mqtt]
 host = "localhost"
 port = 1883
+username = "green"
+# GREEN_MQTT_PASSWORD env var supplies the password at runtime
 
 [routes.foundry]
 url = "foundry.green.chrash.net"

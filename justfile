@@ -15,9 +15,20 @@ dev:
 
 ### check
 
-# run tests with nextest
+# run Rust tests with nextest
 test:
   cargo nextest run
+
+# run JS tests with coverage report
+js-coverage:
+  npm run coverage
+
+# lint JS with biome
+lint-js:
+  biome lint assets/js/ test/js/
+
+# run all tests (Rust + JS)
+test-all: test js-coverage
 
 # Minimum acceptable line coverage percentage.
 # Changing this here affects both `just coverage` and `nix flake check`.
