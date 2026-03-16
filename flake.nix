@@ -31,8 +31,23 @@
         overlays = [ (import rust-overlay) ];
         pkgs = import nixpkgs { inherit system overlays; };
 
-        # Properly accessing crane's lib
-        craneLib = (crane.mkLib pkgs);
+        # Rust toolchain with llvm-tools for coverage instrumentation.
+        # All dev tools (rust-analyzer, rustfmt, clippy) are bundled here so
+        # the devShell gets a single coherent toolchain rather than mixing
+        # nixpkgs Rust packages with the rust-overlay toolchain.
+        rustToolchain = pkgs.rust-bin.stable.latest.default.override {
+          extensions = [
+            "llvm-tools"   # required by cargo-llvm-cov
+            "rust-src"     # required by rust-analyzer
+            "rust-analyzer"
+            "rustfmt"
+            "clippy"
+          ];
+        };
+
+        # Crane library pinned to our toolchain so that builds, tests, and
+        # coverage all use the same Rust/LLVM version.
+        craneLib = (crane.mkLib pkgs).overrideToolchain rustToolchain;
 
         # Common arguments for crane
         commonArgs = {
@@ -45,6 +60,7 @@
               (nixpkgs.lib.fileset.maybeMissing ./migrations)
               (nixpkgs.lib.fileset.maybeMissing ./fixtures)
               (nixpkgs.lib.fileset.maybeMissing ./assets)
+              ./justfile
             ];
           };
 
@@ -57,10 +73,12 @@
           nativeBuildInputs = with pkgs; [
             pkg-config
             makeWrapper
+            just
           ];
         };
 
-        # Build dependencies separately - allows better caching
+        # Build dependencies separately — allows better caching across check
+        # derivations that share the same source + flags.
         cargoArtifacts = craneLib.buildDepsOnly commonArgs;
 
         # Build the actual package
@@ -82,34 +100,55 @@
             '';
           }
         );
+
+        # Run tests with nextest (faster, better output than cargo test).
+        green-nextest = craneLib.cargoNextest (
+          commonArgs
+          // {
+            inherit cargoArtifacts;
+            partitions = 1;
+            partitionType = "count";
+          }
+        );
+
+        # Coverage check: threshold is defined in justfile (coverage_threshold).
+        # just is a nativeBuildInput so the sandbox can call `just coverage-nix`.
+        green-coverage = craneLib.cargoLlvmCov (
+          commonArgs
+          // {
+            inherit cargoArtifacts;
+            nativeBuildInputs = (commonArgs.nativeBuildInputs or [ ]) ++ [ pkgs.cargo-nextest ];
+            buildPhaseCargoCommand = "just coverage-nix $out";
+          }
+        );
       in
       {
-        # Expose the package
         packages = {
           default = green;
-          green = green;
-        };
-
-        # Add a check to verify the build works
-        checks = {
           inherit green;
         };
 
-        # Development shell
+        # checks run during `nix flake check` and `nix build .#checks.<system>.*`
+        checks = {
+          inherit green green-nextest green-coverage;
+        };
+
+        # Development shell — uses the same coherent rustToolchain as crane so
+        # that `cargo llvm-cov nextest` works out of the box without any extra
+        # rustup component installation.
         devShells.default = pkgs.mkShell {
           inputsFrom = [ green ];
-          packages = with pkgs; [
-            rustc
-            cargo
-            rust-analyzer
-            rustfmt
-            clippy
+          packages = [
+            rustToolchain
 
-            just
-            just-lsp
-            taplo
-            typos
-            typos-lsp
+            pkgs.cargo-nextest
+            pkgs.cargo-llvm-cov
+
+            pkgs.just
+            pkgs.just-lsp
+            pkgs.taplo
+            pkgs.typos
+            pkgs.typos-lsp
           ];
         };
       }

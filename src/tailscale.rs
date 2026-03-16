@@ -21,6 +21,7 @@ pub struct TailscaleStatus {
 }
 
 #[derive(Debug, Deserialize)]
+#[cfg_attr(test, derive(Default))]
 #[serde(rename_all = "PascalCase")]
 pub struct TailscalePeer {
     pub host_name: String,
@@ -148,6 +149,264 @@ async fn fetch_status(socket_path: &Path) -> Result<TailscaleStatus, Error> {
 
     serde_json::from_slice(&response[body_start + 4..])
         .map_err(|source| Error::TailscaleDeserialize { source })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Helpers ─────────────────────────────────────────────────────────────────
+
+    fn peer_with_bytes(rx: u64, tx: u64) -> TailscalePeer {
+        TailscalePeer {
+            rx_bytes: Some(rx),
+            tx_bytes: Some(tx),
+            ..Default::default()
+        }
+    }
+
+    // ── fmt_bytes ─────────────────────────────────────────────────────────────
+
+    #[test]
+    fn fmt_bytes_under_kib() {
+        assert_eq!(TailscalePeer::fmt_bytes(0), "0 B");
+        assert_eq!(TailscalePeer::fmt_bytes(1023), "1023 B");
+    }
+
+    #[test]
+    fn fmt_bytes_kib_range() {
+        assert_eq!(TailscalePeer::fmt_bytes(1024), "1.0 KiB");
+        assert_eq!(TailscalePeer::fmt_bytes(1024 * 1024 - 1), "1024.0 KiB");
+    }
+
+    #[test]
+    fn fmt_bytes_mib_range() {
+        assert_eq!(TailscalePeer::fmt_bytes(1024 * 1024), "1.0 MiB");
+        assert_eq!(TailscalePeer::fmt_bytes(1024 * 1024 * 1024 - 1), "1024.0 MiB");
+    }
+
+    #[test]
+    fn fmt_bytes_gib_range() {
+        assert_eq!(TailscalePeer::fmt_bytes(1024 * 1024 * 1024), "1.0 GiB");
+        assert_eq!(TailscalePeer::fmt_bytes(10 * 1024 * 1024 * 1024), "10.0 GiB");
+    }
+
+    // ── rx_str / tx_str ───────────────────────────────────────────────────────
+
+    #[test]
+    fn rx_str_with_value() {
+        let peer = peer_with_bytes(2048, 0);
+        assert_eq!(peer.rx_str(), "2.0 KiB");
+    }
+
+    #[test]
+    fn tx_str_with_value() {
+        let peer = peer_with_bytes(0, 3 * 1024 * 1024);
+        assert_eq!(peer.tx_str(), "3.0 MiB");
+    }
+
+    #[test]
+    fn rx_tx_str_none_returns_empty() {
+        let peer = TailscalePeer::default();
+        assert_eq!(peer.rx_str(), "");
+        assert_eq!(peer.tx_str(), "");
+    }
+
+    // ── ips_str ───────────────────────────────────────────────────────────────
+
+    #[test]
+    fn ips_str_with_multiple_ips() {
+        let peer = TailscalePeer {
+            tailscale_ips: Some(vec!["100.64.0.1".into(), "fd7a::1".into()]),
+            ..Default::default()
+        };
+        assert_eq!(peer.ips_str(), "100.64.0.1, fd7a::1");
+    }
+
+    #[test]
+    fn ips_str_none_returns_empty() {
+        assert_eq!(TailscalePeer::default().ips_str(), "");
+    }
+
+    // ── is_online ─────────────────────────────────────────────────────────────
+
+    #[test]
+    fn is_online_true() {
+        let peer = TailscalePeer { online: Some(true), ..Default::default() };
+        assert!(peer.is_online());
+    }
+
+    #[test]
+    fn is_online_false() {
+        let peer = TailscalePeer { online: Some(false), ..Default::default() };
+        assert!(!peer.is_online());
+    }
+
+    #[test]
+    fn is_online_none_defaults_false() {
+        assert!(!TailscalePeer::default().is_online());
+    }
+
+    // ── flags ─────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn flags_empty_by_default() {
+        assert!(TailscalePeer::default().flags().is_empty());
+    }
+
+    #[test]
+    fn flags_active() {
+        let peer = TailscalePeer { active: Some(true), ..Default::default() };
+        assert!(peer.flags().contains(&"active"));
+    }
+
+    #[test]
+    fn flags_exit_node() {
+        let peer = TailscalePeer { exit_node: Some(true), ..Default::default() };
+        assert!(peer.flags().contains(&"exit node"));
+    }
+
+    #[test]
+    fn flags_exit_node_option() {
+        let peer = TailscalePeer { exit_node_option: Some(true), ..Default::default() };
+        assert!(peer.flags().contains(&"exit node option"));
+    }
+
+    #[test]
+    fn flags_keep_alive() {
+        let peer = TailscalePeer { keep_alive: Some(true), ..Default::default() };
+        assert!(peer.flags().contains(&"keep alive"));
+    }
+
+    #[test]
+    fn flags_multiple() {
+        let peer = TailscalePeer {
+            active: Some(true),
+            keep_alive: Some(true),
+            ..Default::default()
+        };
+        let flags = peer.flags();
+        assert_eq!(flags.len(), 2);
+        assert!(flags.contains(&"active"));
+        assert!(flags.contains(&"keep alive"));
+    }
+
+    // ── last_seen_str / last_handshake_str ────────────────────────────────────
+
+    #[test]
+    fn last_seen_str_normal_timestamp() {
+        let peer = TailscalePeer {
+            last_seen: Some("2026-03-15T12:00:00Z".into()),
+            ..Default::default()
+        };
+        assert_eq!(peer.last_seen_str(), Some("2026-03-15T12:00:00Z"));
+    }
+
+    #[test]
+    fn last_seen_str_go_zero_time_is_none() {
+        let peer = TailscalePeer {
+            last_seen: Some("0001-01-01T00:00:00Z".into()),
+            ..Default::default()
+        };
+        assert_eq!(peer.last_seen_str(), None);
+    }
+
+    #[test]
+    fn last_seen_str_none_field_is_none() {
+        assert_eq!(TailscalePeer::default().last_seen_str(), None);
+    }
+
+    #[test]
+    fn last_handshake_str_normal() {
+        let peer = TailscalePeer {
+            last_handshake: Some("2026-03-15T11:00:00Z".into()),
+            ..Default::default()
+        };
+        assert_eq!(peer.last_handshake_str(), Some("2026-03-15T11:00:00Z"));
+    }
+
+    #[test]
+    fn last_handshake_str_go_zero_time_is_none() {
+        let peer = TailscalePeer {
+            last_handshake: Some("0001-01-01T00:00:00Z".into()),
+            ..Default::default()
+        };
+        assert_eq!(peer.last_handshake_str(), None);
+    }
+
+    // ── relay_str ─────────────────────────────────────────────────────────────
+
+    #[test]
+    fn relay_str_with_relay() {
+        let peer = TailscalePeer {
+            relay: Some("nyc".into()),
+            ..Default::default()
+        };
+        assert_eq!(peer.relay_str(), Some("nyc"));
+    }
+
+    #[test]
+    fn relay_str_empty_string_is_none() {
+        let peer = TailscalePeer { relay: Some(String::new()), ..Default::default() };
+        assert_eq!(peer.relay_str(), None);
+    }
+
+    #[test]
+    fn relay_str_none_field_is_none() {
+        assert_eq!(TailscalePeer::default().relay_str(), None);
+    }
+
+    // ── TailscaleStatus deserialization ───────────────────────────────────────
+
+    #[test]
+    fn tailscale_status_deserializes_from_json() {
+        let json = r#"{
+            "Version": "1.60.0",
+            "BackendState": "Running",
+            "TailscaleIPs": ["100.64.0.1"],
+            "Self": {
+                "HostName": "green",
+                "DNSName": "green.tail.ts.net.",
+                "OS": "linux",
+                "TailscaleIPs": ["100.64.0.1"],
+                "Online": true
+            },
+            "Peer": {}
+        }"#;
+        let status: TailscaleStatus = serde_json::from_str(json).unwrap();
+        assert_eq!(status.version, "1.60.0");
+        assert_eq!(status.backend_state, "Running");
+        assert_eq!(status.self_peer.host_name, "green");
+        assert!(status.self_peer.is_online());
+        assert!(status.peer.is_empty());
+    }
+
+    #[test]
+    fn tailscale_status_deserializes_peers() {
+        let json = r#"{
+            "Version": "1.60.0",
+            "BackendState": "Running",
+            "Self": {
+                "HostName": "green",
+                "DNSName": "green.tail.ts.net.",
+                "OS": "linux"
+            },
+            "Peer": {
+                "abc123": {
+                    "HostName": "laptop",
+                    "DNSName": "laptop.tail.ts.net.",
+                    "OS": "macos",
+                    "Online": false,
+                    "Active": true
+                }
+            }
+        }"#;
+        let status: TailscaleStatus = serde_json::from_str(json).unwrap();
+        assert_eq!(status.peer.len(), 1);
+        let peer = status.peer.values().next().unwrap();
+        assert_eq!(peer.host_name, "laptop");
+        assert!(peer.flags().contains(&"active"));
+    }
 }
 
 pub async fn tailscale_route(

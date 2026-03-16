@@ -34,3 +34,59 @@ pub async fn load_toml_file<T: DeserializeOwned>(path: impl AsRef<Path>) -> Resu
         source,
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde::Deserialize;
+
+    // Each test uses a unique path (pid-based) since nextest gives process isolation.
+    fn tmp(name: &str) -> std::path::PathBuf {
+        std::env::temp_dir().join(format!("green_io_{}_{}.tmp", std::process::id(), name))
+    }
+
+    #[tokio::test]
+    async fn read_file_returns_contents() {
+        let path = tmp("read_ok");
+        tokio::fs::write(&path, "hello world").await.unwrap();
+        let content = read_file(&path).await.unwrap();
+        assert_eq!(content, "hello world");
+        let _ = tokio::fs::remove_file(&path).await;
+    }
+
+    #[tokio::test]
+    async fn read_file_missing_returns_file_read_error() {
+        let err = read_file("/nonexistent/green_no_such_file.txt").await.unwrap_err();
+        assert!(matches!(err, IoError::FileRead { .. }));
+    }
+
+    #[tokio::test]
+    async fn load_toml_file_valid() {
+        #[derive(Deserialize)]
+        struct T {
+            value: String,
+        }
+        let path = tmp("toml_valid");
+        tokio::fs::write(&path, r#"value = "hello""#).await.unwrap();
+        let t: T = load_toml_file(&path).await.unwrap();
+        assert_eq!(t.value, "hello");
+        let _ = tokio::fs::remove_file(&path).await;
+    }
+
+    #[tokio::test]
+    async fn load_toml_file_invalid_returns_deserialize_error() {
+        let path = tmp("toml_invalid");
+        tokio::fs::write(&path, "not valid toml :::").await.unwrap();
+        let err = load_toml_file::<toml::Value>(&path).await.unwrap_err();
+        assert!(matches!(err, IoError::DeserializeTomlFile { .. }));
+        let _ = tokio::fs::remove_file(&path).await;
+    }
+
+    #[tokio::test]
+    async fn load_toml_file_missing_file_returns_file_read_error() {
+        let err = load_toml_file::<toml::Value>("/nonexistent/green_no_such.toml")
+            .await
+            .unwrap_err();
+        assert!(matches!(err, IoError::FileRead { .. }));
+    }
+}

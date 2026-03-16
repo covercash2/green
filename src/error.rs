@@ -81,9 +81,6 @@ pub enum Error {
     #[error("invalid or expired recovery code")]
     InvalidRecoveryCode,
 
-    #[error("failed to connect to MQTT broker: {source}")]
-    MqttConnect { source: rumqttc::ClientError },
-
     #[error("mqtt not configured")]
     MqttNotConfigured,
 }
@@ -99,8 +96,7 @@ impl IntoResponse for Error {
             }
             Error::TailscaleConnect { .. }
             | Error::TailscaleParse(_)
-            | Error::TailscaleDeserialize { .. }
-            | Error::MqttConnect { .. } => StatusCode::BAD_GATEWAY,
+            | Error::TailscaleDeserialize { .. } => StatusCode::BAD_GATEWAY,
             Error::MqttNotConfigured => StatusCode::NOT_FOUND,
             Error::EnvLevel { .. }
             | Error::DeserializeTomlFile { .. }
@@ -129,5 +125,114 @@ impl IntoResponse for Error {
         };
 
         (status, body).into_response()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::http::StatusCode;
+    use axum::response::IntoResponse;
+
+    fn status(e: Error) -> StatusCode {
+        e.into_response().status()
+    }
+
+    #[test]
+    fn not_found_is_404() {
+        assert_eq!(status(Error::NotFound), StatusCode::NOT_FOUND);
+    }
+
+    #[test]
+    fn mqtt_not_configured_is_404() {
+        assert_eq!(status(Error::MqttNotConfigured), StatusCode::NOT_FOUND);
+    }
+
+    #[test]
+    fn unauthorized_is_401() {
+        assert_eq!(status(Error::Unauthorized), StatusCode::UNAUTHORIZED);
+    }
+
+    #[test]
+    fn forbidden_is_403() {
+        assert_eq!(status(Error::Forbidden), StatusCode::FORBIDDEN);
+    }
+
+    #[test]
+    fn webauthn_is_400() {
+        assert_eq!(status(Error::WebAuthn("oops".into())), StatusCode::BAD_REQUEST);
+    }
+
+    #[test]
+    fn invalid_recovery_code_is_400() {
+        assert_eq!(status(Error::InvalidRecoveryCode), StatusCode::BAD_REQUEST);
+    }
+
+    #[test]
+    fn tailscale_parse_is_502() {
+        assert_eq!(
+            status(Error::TailscaleParse("bad json".into())),
+            StatusCode::BAD_GATEWAY
+        );
+    }
+
+    #[test]
+    fn tailscale_connect_is_502() {
+        let source = std::io::Error::new(std::io::ErrorKind::ConnectionRefused, "refused");
+        assert_eq!(
+            status(Error::TailscaleConnect { source }),
+            StatusCode::BAD_GATEWAY
+        );
+    }
+
+    #[test]
+    fn tailscale_deserialize_is_502() {
+        let source = serde_json::from_str::<()>("invalid").unwrap_err();
+        assert_eq!(
+            status(Error::TailscaleDeserialize { source }),
+            StatusCode::BAD_GATEWAY
+        );
+    }
+
+    #[test]
+    fn database_is_500() {
+        assert_eq!(
+            status(Error::Database("connection lost".into())),
+            StatusCode::INTERNAL_SERVER_ERROR
+        );
+    }
+
+    #[test]
+    fn auth_setup_is_500() {
+        assert_eq!(
+            status(Error::AuthSetup("bad config".into())),
+            StatusCode::INTERNAL_SERVER_ERROR
+        );
+    }
+
+    #[test]
+    fn server_start_is_500() {
+        let source = std::io::Error::new(std::io::ErrorKind::AddrInUse, "busy");
+        assert_eq!(
+            status(Error::ServerStart { source }),
+            StatusCode::INTERNAL_SERVER_ERROR
+        );
+    }
+
+    #[test]
+    fn io_error_is_500() {
+        let io_err = crate::io::IoError::FileRead {
+            path: "x".into(),
+            source: std::io::Error::new(std::io::ErrorKind::NotFound, "x"),
+        };
+        assert_eq!(status(Error::Io(io_err)), StatusCode::INTERNAL_SERVER_ERROR);
+    }
+
+    #[tokio::test]
+    async fn webauthn_body_is_sanitized() {
+        let resp = Error::WebAuthn("internal detail that must not leak".into()).into_response();
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+        let body = axum::body::to_bytes(resp.into_body(), 1024).await.unwrap();
+        assert_eq!(&body[..], b"authentication error");
     }
 }
