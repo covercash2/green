@@ -157,3 +157,153 @@ pub async fn breaker_detail_route(
     });
     Ok(Html(BreakerDetailTemplate { detail }.render()?))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::breaker_detail::{BreakerData, BreakerSlot, BreakerStore};
+    use std::collections::HashMap;
+
+    fn make_store(slots: HashMap<String, BreakerSlot>, todos: Vec<String>) -> BreakerStore {
+        BreakerStore::from_data(BreakerData {
+            todos,
+            slots,
+            couples: vec![],
+        })
+        .unwrap()
+    }
+
+    fn slot(label: &str) -> BreakerSlot {
+        BreakerSlot {
+            label: Some(label.into()),
+            amperage: None,
+            devices: None,
+            notes: None,
+        }
+    }
+
+    // ── breaker_class ──────────────────────────────────────────────────────────
+
+    #[test]
+    fn class_empty_string() {
+        assert_eq!(breaker_class(""), "breaker-unlabeled");
+    }
+
+    #[test]
+    fn class_whitespace_only() {
+        assert_eq!(breaker_class("   "), "breaker-unlabeled");
+    }
+
+    #[test]
+    fn class_x_uppercase() {
+        assert_eq!(breaker_class("X"), "breaker-unused");
+    }
+
+    #[test]
+    fn class_x_lowercase() {
+        assert_eq!(breaker_class("x"), "breaker-unused");
+    }
+
+    #[test]
+    fn class_unknown_marker() {
+        assert_eq!(breaker_class("???"), "breaker-unknown");
+    }
+
+    #[test]
+    fn class_known_label() {
+        assert_eq!(breaker_class("garage"), "breaker-known");
+        assert_eq!(breaker_class("kitchen lights"), "breaker-known");
+    }
+
+    // ── html_escape ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn escape_ampersand() {
+        assert_eq!(html_escape("a&b"), "a&amp;b");
+    }
+
+    #[test]
+    fn escape_angle_brackets() {
+        assert_eq!(html_escape("<div>"), "&lt;div&gt;");
+    }
+
+    #[test]
+    fn escape_double_quote() {
+        assert_eq!(html_escape(r#"say "hi""#), "say &quot;hi&quot;");
+    }
+
+    #[test]
+    fn escape_no_special_chars() {
+        assert_eq!(html_escape("plain text"), "plain text");
+    }
+
+    #[test]
+    fn escape_all_specials() {
+        assert_eq!(html_escape(r#"<a href="x&y">"#), "&lt;a href=&quot;x&amp;y&quot;&gt;");
+    }
+
+    // ── render_from_store ──────────────────────────────────────────────────────
+
+    #[test]
+    fn render_empty_store_has_panel_wrapper() {
+        let store = make_store(HashMap::new(), vec![]);
+        let html = render_from_store(&store);
+        assert!(html.contains(r#"class="breaker-panel""#));
+        assert!(html.contains(r#"class="breaker-slots""#));
+        assert!(!html.contains("breaker-todos"));
+    }
+
+    #[test]
+    fn render_one_row_contains_label() {
+        let mut slots = HashMap::new();
+        let _ = slots.insert("1-left".into(), slot("kitchen"));
+        let store = make_store(slots, vec![]);
+        let html = render_from_store(&store);
+        assert!(html.contains("kitchen"));
+        assert!(html.contains("breaker-row-num"));
+    }
+
+    #[test]
+    fn render_todos_section_when_present() {
+        let store = make_store(HashMap::new(), vec!["unlabeled breaker 7".into()]);
+        let html = render_from_store(&store);
+        assert!(html.contains("breaker-todos"));
+        assert!(html.contains("unlabeled breaker 7"));
+    }
+
+    #[test]
+    fn render_label_html_escaped() {
+        let mut slots = HashMap::new();
+        let _ = slots.insert("1-left".into(), slot("A&C"));
+        let store = make_store(slots, vec![]);
+        let html = render_from_store(&store);
+        assert!(html.contains("A&amp;C"));
+        assert!(!html.contains("A&C\""));
+    }
+
+    #[test]
+    fn render_empty_label_shows_em_dash() {
+        let mut slots = HashMap::new();
+        let _ = slots.insert(
+            "1-left".into(),
+            BreakerSlot {
+                label: None,
+                amperage: None,
+                devices: None,
+                notes: None,
+            },
+        );
+        let store = make_store(slots, vec![]);
+        let html = render_from_store(&store);
+        assert!(html.contains('—'));
+    }
+
+    // ── BreakerContent ─────────────────────────────────────────────────────────
+
+    #[test]
+    fn breaker_content_new_wraps_panel() {
+        let store = make_store(HashMap::new(), vec![]);
+        let content = BreakerContent::new(&store);
+        assert!(content.0.contains("breaker-panel"));
+    }
+}

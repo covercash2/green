@@ -190,7 +190,10 @@ impl ServerState {
             let (tx, _) = tokio::sync::broadcast::channel(256);
             let task_tx = tx.clone();
             let task_config = mqtt_config.clone();
-            let _ = tokio::spawn(async move { mqtt::run_mqtt_task(task_config, task_tx).await });
+            let _ = tokio::spawn(async move {
+                mqtt::run_mqtt_task(task_config, task_tx).await;
+                tracing::error!("mqtt task exited unexpectedly");
+            });
             Some(Arc::new(mqtt::MqttState { tx }))
         } else {
             None

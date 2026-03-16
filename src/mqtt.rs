@@ -122,6 +122,105 @@ fn utc_now() -> String {
         .unwrap_or_else(|_| "1970-01-01T00:00:00Z".to_owned())
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ── MqttConfig defaults ───────────────────────────────────────────────────
+
+    #[test]
+    fn mqtt_config_default_host() {
+        let cfg: MqttConfig = toml::from_str("").unwrap();
+        assert_eq!(cfg.host, "localhost");
+    }
+
+    #[test]
+    fn mqtt_config_default_port() {
+        let cfg: MqttConfig = toml::from_str("").unwrap();
+        assert_eq!(cfg.port, 1883);
+    }
+
+    #[test]
+    fn mqtt_config_default_topics_is_wildcard() {
+        let cfg: MqttConfig = toml::from_str("").unwrap();
+        assert_eq!(cfg.topics, vec!["#"]);
+    }
+
+    #[test]
+    fn mqtt_config_default_credentials_are_none() {
+        let cfg: MqttConfig = toml::from_str("").unwrap();
+        assert!(cfg.username.is_none());
+        assert!(cfg.password.is_none());
+    }
+
+    #[test]
+    fn mqtt_config_explicit_values() {
+        let cfg: MqttConfig = toml::from_str(r#"
+            host = "broker.example.com"
+            port = 8883
+            username = "user"
+            password = "pass"
+            topics = ["home/#", "sensors/#"]
+        "#)
+        .unwrap();
+        assert_eq!(cfg.host, "broker.example.com");
+        assert_eq!(cfg.port, 8883);
+        assert_eq!(cfg.username.as_deref(), Some("user"));
+        assert_eq!(cfg.password.as_deref(), Some("pass"));
+        assert_eq!(cfg.topics, vec!["home/#", "sensors/#"]);
+    }
+
+    // ── MqttMessage serde ─────────────────────────────────────────────────────
+
+    #[test]
+    fn mqtt_message_round_trips_json() {
+        let msg = MqttMessage {
+            topic: "home/temp".into(),
+            payload: "21.5".into(),
+            received_at: "2026-03-15T12:00:00Z".into(),
+        };
+        let json = serde_json::to_string(&msg).unwrap();
+        let decoded: MqttMessage = serde_json::from_str(&json).unwrap();
+        assert_eq!(decoded.topic, msg.topic);
+        assert_eq!(decoded.payload, msg.payload);
+        assert_eq!(decoded.received_at, msg.received_at);
+    }
+
+    #[test]
+    fn mqtt_message_serialized_field_names() {
+        let msg = MqttMessage {
+            topic: "t".into(),
+            payload: "p".into(),
+            received_at: "r".into(),
+        };
+        let v: serde_json::Value = serde_json::to_value(&msg).unwrap();
+        assert!(v.get("topic").is_some());
+        assert!(v.get("payload").is_some());
+        assert!(v.get("received_at").is_some());
+    }
+
+    // ── utc_now ───────────────────────────────────────────────────────────────
+
+    #[test]
+    fn utc_now_is_rfc3339_format() {
+        let ts = utc_now();
+        // Must contain the date/time separator and end with Z (UTC).
+        assert!(ts.contains('T'), "timestamp should contain T separator: {ts}");
+        assert!(ts.ends_with('Z'), "timestamp should end with Z (UTC): {ts}");
+        // Year must be plausible (2020+).
+        let year: u32 = ts[..4].parse().expect("first 4 chars should be year");
+        assert!(year >= 2020, "year {year} looks wrong");
+    }
+
+    #[test]
+    fn utc_now_changes_over_time() {
+        let t1 = utc_now();
+        std::thread::sleep(Duration::from_millis(1_100));
+        let t2 = utc_now();
+        assert_ne!(t1, t2, "successive calls should differ by at least 1 second");
+    }
+}
+
 #[derive(Template)]
 #[template(path = "mqtt.html")]
 struct MqttPage {

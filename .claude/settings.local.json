@@ -27,7 +27,10 @@
       "Bash(jj log:*)",
       "Bash(jj bookmark:*)",
       "Bash(jj diff:*)",
-      "Bash(nu:*)"
+      "Bash(nu:*)",
+      "Bash(nix search:*)",
+      "Bash(nix develop:*)",
+      "Bash(grep:*)"
     ]
   }
 }
