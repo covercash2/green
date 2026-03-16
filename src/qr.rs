@@ -81,7 +81,7 @@ mod tests {
             certificate: Arc::from(""),
             breaker_content,
             breaker_detail_store: store,
-            index: Index::new(Routes::default(), false).await.unwrap(),
+            index: Index::new(Routes::default(), false, false).await.unwrap(),
             tailscale_socket: Arc::from(std::path::Path::new(
                 "/run/tailscale/tailscaled.sock",
             )),

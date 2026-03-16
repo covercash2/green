@@ -10,7 +10,7 @@
 #   green restart              — rebuild and restart after making changes
 #   green stop                 — shut the server down
 #
-# Log files (both truncated on each start):
+# Log files (rotated to <file>.1 when > 5 MB on start, otherwise truncated):
 #   logs.ndjson   — structured JSON tracing output from the green binary (stdout)
 #   errors.log    — cargo build output, panics, and server stderr
 
@@ -39,6 +39,15 @@ export def "load-secrets" [] {
         open $secrets_path
     } else {
         {}
+    }
+}
+
+# Rotate a log file to <file>.1 if it exceeds 5 MB, replacing any previous rotation.
+# Called by `green start` before creating a fresh log file.
+def "rotate-log" [file: path] {
+    if not ($file | path exists) { return }
+    if (ls $file | get size | first) > 5mb {
+        mv --force $file $"($file).1"
     }
 }
 
@@ -78,7 +87,7 @@ export def "green run" [
 # Credentials are inherited from the current environment, so `load-env (load-secrets)`
 # is called here before forking — the child inherits the result.
 #
-# Both log files are truncated on each start so `tail -f` always shows the current run.
+# Log files are rotated (→ <file>.1) when > 5 MB, then a fresh file is created.
 export def "green start" [
     --config-path: path = "./config.dev.toml"  # config file to use
 ] {
@@ -96,7 +105,9 @@ export def "green start" [
         green stop --config-path $config_path
     }
 
-    # Truncate both log files so `tail -f` always reflects the current run.
+    # Rotate log files if they exceed 5 MB, then start fresh.
+    rotate-log $log_file
+    rotate-log $error_log_file
     "" | save --force $log_file
     "" | save --force $error_log_file
 

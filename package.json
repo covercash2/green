@@ -3,6 +3,7 @@
   "type": "module",
   "private": true,
   "scripts": {
-    "test": "node --test test/js/*.test.js"
+    "test": "node --test test/js/*.test.js",
+    "coverage": "node --test --experimental-test-coverage test/js/*.test.js"
   }
 }

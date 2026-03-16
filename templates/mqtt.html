@@ -6,24 +6,31 @@
 <a href="/" class="leet-link">&larr; back</a>
 <h1 class="leet-h1">mqtt live feed</h1>
 
-<div class="mqtt-status-bar">
-    <span id="mqtt-status-dot" class="mqtt-dot mqtt-dot-connecting"></span>
-    <span id="mqtt-status-text" class="mqtt-status-text">connecting…</span>
-</div>
+<div hx-ext="sse" sse-connect="/api/mqtt/stream">
+    <div class="mqtt-status-bar" sse-swap="broker" hx-swap="innerHTML">
+        <span class="mqtt-dot mqtt-dot-connecting"></span>
+        <span class="mqtt-status-text">connecting…</span>
+    </div>
 
-<table class="mqtt-table" id="mqtt-table">
-    <thead>
-        <tr>
-            <th class="mqtt-th">topic</th>
-            <th class="mqtt-th">payload</th>
-            <th class="mqtt-th">received</th>
-        </tr>
-    </thead>
-    <tbody id="mqtt-tbody">
-    </tbody>
-</table>
+    <div class="mqtt-filter-bar">
+        <input
+            id="mqtt-filter"
+            class="mqtt-filter"
+            type="search"
+            placeholder="filter by topic…"
+            autocomplete="off"
+            autocorrect="off"
+            autocapitalize="none"
+            spellcheck="false"
+        >
+    </div>
+
+    <div class="mqtt-feed" id="mqtt-feed" sse-swap="message" hx-swap="afterbegin"></div>
+</div>
 {% endblock %}
 
 {% block scripts %}
-<script type="module" src="/assets/js/mqtt.js"></script>
+<script src="https://unpkg.com/htmx.org@2.0.4/dist/htmx.min.js"></script>
+<script src="https://unpkg.com/htmx-ext-sse@2.2.2/sse.js"></script>
+<script type="module" src="/assets/js/mqtt.js?v={{ version }}"></script>
 {% endblock %}

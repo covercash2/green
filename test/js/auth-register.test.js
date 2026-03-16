@@ -112,7 +112,7 @@ test('throws with fallback message when finish body is empty', async () => {
 
 test('posts to the correct endpoints', async () => {
     const urls = [];
-    const mockFetch = async (url, opts) => {
+    const mockFetch = async (url, _opts) => {
         urls.push(url);
         if (url.includes('challenge')) return okJson({});
         return okEmpty();

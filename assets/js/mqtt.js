@@ -1,78 +1,39 @@
 /**
- * MQTT live-feed page — SSE client.
+ * MQTT live-feed page — minimal DOM handlers.
  *
- * `connectMqtt` is a pure logic function with injected deps so it can be
- * unit-tested without a browser or network.
+ * Rendering is done server-side; HTMX SSE (hx-ext="sse") handles the
+ * connection and swaps pre-rendered HTML card fragments into the feed.
  *
- * The DOM binding at the bottom wires it up to the actual page elements and
- * only runs in a browser context.
+ * This file only handles:
+ *   - filter input: show/hide cards by topic substring
+ *   - card scrollback: trim cards beyond MAX_CARDS after each insertion
  */
 
-/**
- * @param {string} streamUrl
- * @param {{ EventSource?: typeof EventSource, onMessage?: Function, onStatus?: Function }} deps
- * @returns {{ close: Function }}
- */
-export function connectMqtt(streamUrl, { EventSource: ES = EventSource, onMessage = () => {}, onStatus = () => {} } = {}) {
-    const source = new ES(streamUrl);
-
-    source.onopen = () => onStatus('connected');
-    source.onerror = () => onStatus('error');
-
-    source.onmessage = (event) => {
-        try {
-            const msg = JSON.parse(event.data);
-            onMessage(msg);
-        } catch (_) {
-            // ignore malformed frames
-        }
-    };
-
-    return { close: () => source.close() };
-}
+const MAX_CARDS = 200;
 
 // DOM binding — only runs in the browser
 if (typeof document !== 'undefined') {
-    const dot = document.getElementById('mqtt-status-dot');
-    const statusText = document.getElementById('mqtt-status-text');
-    const tbody = document.getElementById('mqtt-tbody');
+    const feed = document.getElementById('mqtt-feed');
+    const filterInput = document.getElementById('mqtt-filter');
+    let filterText = '';
 
-    const MAX_ROWS = 200;
-
-    function setStatus(state) {
-        if (!dot || !statusText) return;
-        dot.className = 'mqtt-dot mqtt-dot-' + state;
-        statusText.textContent = state;
-    }
-
-    function onMessage(msg) {
-        if (!tbody) return;
-        const tr = document.createElement('tr');
-        tr.className = 'mqtt-row';
-
-        const tdTopic = document.createElement('td');
-        tdTopic.className = 'mqtt-td mqtt-topic';
-        tdTopic.textContent = msg.topic ?? '';
-
-        const tdPayload = document.createElement('td');
-        tdPayload.className = 'mqtt-td mqtt-payload';
-        tdPayload.textContent = msg.payload ?? '';
-
-        const tdTime = document.createElement('td');
-        tdTime.className = 'mqtt-td mqtt-ts';
-        tdTime.textContent = msg.received_at ?? '';
-
-        tr.appendChild(tdTopic);
-        tr.appendChild(tdPayload);
-        tr.appendChild(tdTime);
-
-        tbody.prepend(tr);
-
-        // Trim old rows to prevent unbounded DOM growth.
-        while (tbody.rows.length > MAX_ROWS) {
-            tbody.deleteRow(tbody.rows.length - 1);
+    filterInput?.addEventListener('input', () => {
+        filterText = filterInput.value.toLowerCase();
+        for (const card of feed?.children ?? []) {
+            const topic = (card.dataset.topic ?? '').toLowerCase();
+            card.hidden = filterText ? !topic.includes(filterText) : false;
         }
-    }
+    });
 
-    connectMqtt('/api/mqtt/stream', { onMessage, onStatus: setStatus });
+    // Apply filter to newly inserted cards and enforce the scrollback limit.
+    document.addEventListener('htmx:afterSwap', (e) => {
+        if (e.detail.target?.id !== 'mqtt-feed') return;
+        const card = e.detail.target.firstElementChild;
+        if (card && filterText && !(card.dataset.topic ?? '').toLowerCase().includes(filterText)) {
+            card.hidden = true;
+        }
+        while (feed?.children.length > MAX_CARDS) {
+            feed.removeChild(feed.lastChild);
+        }
+    });
 }

@@ -149,6 +149,7 @@
             pkgs.taplo
             pkgs.typos
             pkgs.typos-lsp
+            pkgs.biome
           ];
         };
       }

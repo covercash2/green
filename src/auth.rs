@@ -17,7 +17,8 @@ use tokio::sync::{Mutex, RwLock};
 use url::Url;
 use uuid::Uuid;
 use webauthn_rs::prelude::{
-    Passkey, PasskeyAuthentication, PasskeyRegistration, Webauthn, WebauthnBuilder,
+    DiscoverableAuthentication, DiscoverableKey, Passkey, PasskeyRegistration, Webauthn,
+    WebauthnBuilder,
 };
 
 use crate::{ServerState, error::Error};
@@ -86,7 +87,7 @@ pub struct AuthState {
     pub db: PgPool,
     pub session_store: Arc<RwLock<HashMap<String, SessionData>>>,
     pub reg_states: Arc<Mutex<HashMap<String, (PasskeyRegistration, Instant)>>>,
-    pub auth_states: Arc<Mutex<HashMap<String, (PasskeyAuthentication, Instant)>>>,
+    pub discoverable_states: Arc<Mutex<HashMap<String, (DiscoverableAuthentication, Instant)>>>,
     pub otc_store: Arc<RwLock<HashMap<String, (String, Instant)>>>,
     pub http_client: reqwest::Client,
 }
@@ -124,7 +125,7 @@ impl AuthState {
             db,
             session_store: Arc::new(RwLock::new(HashMap::new())),
             reg_states: Arc::new(Mutex::new(HashMap::new())),
-            auth_states: Arc::new(Mutex::new(HashMap::new())),
+            discoverable_states: Arc::new(Mutex::new(HashMap::new())),
             otc_store: Arc::new(RwLock::new(HashMap::new())),
             http_client: reqwest::Client::new(),
         })
@@ -233,9 +234,37 @@ impl AuthState {
         map.retain(|_, (_, ts)| ts.elapsed() <= CHALLENGE_TTL);
     }
 
-    /// Purge authentication challenge states older than [`CHALLENGE_TTL`].
-    pub async fn cleanup_auth_states(&self) {
-        let mut map = self.auth_states.lock().await;
+    /// Returns `None` if no user with this UUID exists.
+    async fn load_passkeys_by_id(
+        &self,
+        user_id: Uuid,
+    ) -> Result<Option<(String, Vec<Passkey>)>, Error> {
+        let row = sqlx::query(
+            "SELECT u.username, COALESCE(p.credentials, '[]'::jsonb) AS credentials \
+             FROM users u \
+             LEFT JOIN passkeys p ON p.user_id = u.id \
+             WHERE u.id = $1",
+        )
+        .bind(user_id)
+        .fetch_optional(&self.db)
+        .await
+        .map_err(|e| Error::Database(e.to_string()))?;
+
+        match row {
+            None => Ok(None),
+            Some(row) => {
+                let username: String = row.get("username");
+                let credentials: Value = row.get("credentials");
+                let passkeys: Vec<Passkey> = serde_json::from_value(credentials)
+                    .map_err(|e| Error::Database(format!("failed to deserialize passkeys: {e}")))?;
+                Ok(Some((username, passkeys)))
+            }
+        }
+    }
+
+    /// Purge discoverable challenge states older than [`CHALLENGE_TTL`].
+    pub async fn cleanup_discoverable_states(&self) {
+        let mut map = self.discoverable_states.lock().await;
         map.retain(|_, (_, ts)| ts.elapsed() <= CHALLENGE_TTL);
     }
 
@@ -287,14 +316,17 @@ impl FromRequestParts<ServerState> for AuthUser {
             .as_ref()
             .ok_or_else(|| Redirect::to("/").into_response())?;
 
+        let next = parts.uri.path();
+        let login_url = format!("/auth/login?next={next}");
+
         let token = session_token_from_parts(parts)
-            .ok_or_else(|| Redirect::to("/auth/login").into_response())?;
+            .ok_or_else(|| Redirect::to(&login_url).into_response())?;
 
         let store = auth.session_store.read().await;
         let session = store
             .get(&token)
             .filter(|s| session_is_valid(s))
-            .ok_or_else(|| Redirect::to("/auth/login").into_response())?;
+            .ok_or_else(|| Redirect::to(&login_url).into_response())?;
 
         Ok(AuthUser {
             user_id: session.user_id,
@@ -373,22 +405,23 @@ pub struct StartRegRequest {
     pub username: String,
 }
 
-#[derive(Debug, Deserialize)]
-pub struct StartAuthRequest {
-    pub username: String,
-}
-
 // ─── Handlers ─────────────────────────────────────────────────────────────
 
 use askama::Template;
-use axum::{Json, extract::State, response::Html};
+use axum::{Form, Json, extract::{Query, State}, response::Html};
 use serde_json::Value;
+
+#[derive(Debug, Deserialize, Default)]
+pub struct LoginQuery {
+    pub next: Option<String>,
+}
 
 #[derive(Template)]
 #[template(path = "auth_login.html")]
 pub struct LoginPage {
     pub version: &'static str,
     pub auth_user: Option<AuthUserInfo>,
+    pub next_url: String,
 }
 
 #[derive(Template)]
@@ -398,11 +431,18 @@ pub struct RegisterPage {
     pub auth_user: Option<AuthUserInfo>,
 }
 
-pub async fn login_page(State(_s): State<ServerState>) -> Result<Html<String>, Error> {
+pub async fn login_page(
+    State(_s): State<ServerState>,
+    Query(q): Query<LoginQuery>,
+) -> Result<Html<String>, Error> {
     Ok(Html(
         LoginPage {
             version: crate::VERSION,
             auth_user: None,
+            next_url: q
+                .next
+                .filter(|n| n.starts_with('/') && !n.starts_with("//"))
+                .unwrap_or_else(|| "/".to_owned()),
         }
         .render()?,
     ))
@@ -512,81 +552,97 @@ pub async fn finish_registration(
     Ok((jar, Redirect::to("/")))
 }
 
-pub async fn start_authentication(
-    State(s): State<ServerState>,
-    Json(req): Json<StartAuthRequest>,
-) -> Result<Json<Value>, Error> {
-    let auth = s.auth_state.as_ref().ok_or(Error::NotFound)?;
+// ─── Discoverable / conditional-UI authentication ─────────────────────────────
 
-    let (_, passkeys) = auth
-        .load_passkeys(&req.username)
-        .await?
-        .ok_or_else(|| Error::WebAuthn("no passkeys registered for this user".into()))?;
-
-    if passkeys.is_empty() {
-        return Err(Error::WebAuthn(
-            "no passkeys registered for this user".into(),
-        ));
-    }
-
-    auth.cleanup_auth_states().await;
-
-    let (rcr, auth_state) = auth
-        .webauthn
-        .start_passkey_authentication(&passkeys)
-        .map_err(|e| Error::WebAuthn(format!("{e:?}")))?;
-
-    {
-        let mut states = auth.auth_states.lock().await;
-        let _ = states.insert(req.username.clone(), (auth_state, Instant::now()));
-    }
-
-    Ok(Json(
-        serde_json::to_value(rcr).map_err(|e| Error::WebAuthn(e.to_string()))?,
-    ))
+#[derive(Debug, Serialize)]
+pub struct DiscoverableChallengeResponse {
+    #[serde(rename = "publicKey")]
+    pub public_key: Value,
+    pub challenge_id: String,
 }
 
-pub async fn finish_authentication(
+/// Start a discoverable (conditional-UI) authentication.
+/// No username is required; the browser presents passkeys via its autofill UI.
+pub async fn start_discoverable_auth(
+    State(s): State<ServerState>,
+) -> Result<Json<DiscoverableChallengeResponse>, Error> {
+    let auth = s.auth_state.as_ref().ok_or(Error::NotFound)?;
+
+    auth.cleanup_discoverable_states().await;
+
+    let (rcr, state) = auth
+        .webauthn
+        .start_discoverable_authentication()
+        .map_err(|e| Error::WebAuthn(format!("{e:?}")))?;
+
+    let challenge_id = Uuid::new_v4().to_string();
+    {
+        let mut states = auth.discoverable_states.lock().await;
+        let _ = states.insert(challenge_id.clone(), (state, Instant::now()));
+    }
+
+    let public_key = serde_json::to_value(&rcr)
+        .map_err(|e| Error::WebAuthn(e.to_string()))?
+        .get("publicKey")
+        .cloned()
+        .unwrap_or(Value::Null);
+
+    Ok(Json(DiscoverableChallengeResponse {
+        public_key,
+        challenge_id,
+    }))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct FinishDiscoverableRequest {
+    pub challenge_id: String,
+    pub credential: Value,
+}
+
+/// Finish a discoverable (conditional-UI) authentication.
+/// Looks up the user by the `userHandle` embedded in the credential.
+pub async fn finish_discoverable_auth(
     State(s): State<ServerState>,
     jar: CookieJar,
-    Json(body): Json<Value>,
+    Json(req): Json<FinishDiscoverableRequest>,
 ) -> Result<(CookieJar, Redirect), Error> {
     let auth = s.auth_state.as_ref().ok_or(Error::NotFound)?;
 
-    let username = body
-        .get("username")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| Error::WebAuthn("missing username".into()))?
-        .to_owned();
-
-    let auth_state = {
-        let mut states = auth.auth_states.lock().await;
+    let disc_state = {
+        let mut states = auth.discoverable_states.lock().await;
         states
-            .remove(&username)
-            .ok_or_else(|| Error::WebAuthn("no pending authentication for that username".into()))?
+            .remove(&req.challenge_id)
+            .ok_or_else(|| Error::WebAuthn("no pending discoverable challenge".into()))?
             .0
     };
 
-    let credential_json: Value = body
-        .get("credential")
-        .cloned()
-        .ok_or_else(|| Error::WebAuthn("missing credential in body".into()))?;
+    let auth_result_raw: webauthn_rs::prelude::PublicKeyCredential =
+        serde_json::from_value(req.credential)
+            .map_err(|e| Error::WebAuthn(format!("invalid credential: {e}")))?;
 
-    let auth_result_raw = serde_json::from_value(credential_json)
-        .map_err(|e| Error::WebAuthn(format!("invalid credential: {e}")))?;
-
-    let auth_result = auth
+    let (user_id, _cred_id) = auth
         .webauthn
-        .finish_passkey_authentication(&auth_result_raw, &auth_state)
+        .identify_discoverable_authentication(&auth_result_raw)
         .map_err(|e| {
-            tracing::warn!(username, "failed authentication attempt");
+            tracing::warn!("discoverable auth identify failed");
             Error::WebAuthn(format!("{e:?}"))
         })?;
 
-    let (user_id, mut passkeys) = auth
-        .load_passkeys(&username)
+    let (username, mut passkeys) = auth
+        .load_passkeys_by_id(user_id)
         .await?
-        .ok_or_else(|| Error::WebAuthn("user not found after auth".into()))?;
+        .ok_or_else(|| Error::WebAuthn("user not found".into()))?;
+
+    let discoverable_creds: Vec<DiscoverableKey> =
+        passkeys.iter().map(DiscoverableKey::from).collect();
+
+    let auth_result = auth
+        .webauthn
+        .finish_discoverable_authentication(&auth_result_raw, disc_state, &discoverable_creds)
+        .map_err(|e| {
+            tracing::warn!(username, "failed discoverable auth attempt");
+            Error::WebAuthn(format!("{e:?}"))
+        })?;
 
     for pk in &mut passkeys {
         let _ = pk.update_credential(&auth_result);
@@ -596,7 +652,7 @@ pub async fn finish_authentication(
     auth.save_passkeys(user_id, &username, &username, &role, &passkeys)
         .await?;
 
-    tracing::info!(username, ?role, "user logged in");
+    tracing::info!(username, ?role, "user logged in via discoverable auth");
 
     auth.cleanup_sessions().await;
     let token = Uuid::new_v4().to_string();
@@ -650,21 +706,54 @@ pub struct VerifyRecoveryRequest {
     pub code: String,
 }
 
+#[derive(Debug, Deserialize, Default)]
+pub struct RecoveryQuery {
+    pub sent: Option<bool>,
+    pub username: Option<String>,
+    pub error: Option<String>,
+}
+
 #[derive(Template)]
 #[template(path = "auth_recover.html")]
 pub struct RecoveryPage {
     pub version: &'static str,
     pub auth_user: Option<AuthUserInfo>,
+    pub sent: bool,
+    pub username: String,
+    pub error: Option<String>,
 }
 
-pub async fn recover_page(State(_s): State<ServerState>) -> Result<Html<String>, Error> {
+pub async fn recover_page(
+    State(_s): State<ServerState>,
+    Query(q): Query<RecoveryQuery>,
+) -> Result<Html<String>, Error> {
     Ok(Html(
         RecoveryPage {
             version: crate::VERSION,
             auth_user: None,
+            sent: q.sent.unwrap_or(false),
+            username: q.username.unwrap_or_default(),
+            error: q.error,
         }
         .render()?,
     ))
+}
+
+/// Percent-encode a string for safe inclusion as a query parameter value (RFC 3986).
+fn percent_encode(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for b in s.bytes() {
+        match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                out.push(b as char);
+            }
+            other => {
+                out.push('%');
+                out.push_str(&format!("{other:02X}"));
+            }
+        }
+    }
+    out
 }
 
 fn generate_otc() -> String {
@@ -686,8 +775,8 @@ fn generate_otc() -> String {
 
 pub async fn start_recovery(
     State(s): State<ServerState>,
-    Json(req): Json<StartRecoveryRequest>,
-) -> Result<Json<Value>, Error> {
+    Form(req): Form<StartRecoveryRequest>,
+) -> Result<Redirect, Error> {
     let auth = s.auth_state.as_ref().ok_or(Error::NotFound)?;
 
     // Check user exists but don't reveal the result (anti-enumeration)
@@ -718,32 +807,38 @@ pub async fn start_recovery(
         }
     }
 
-    Ok(Json(serde_json::json!({ "ok": true })))
+    let url = format!("/auth/recover?sent=true&username={}", percent_encode(&req.username));
+    Ok(Redirect::to(&url))
 }
 
 pub async fn verify_recovery(
     State(s): State<ServerState>,
-    Json(req): Json<VerifyRecoveryRequest>,
-) -> Result<(CookieJar, Redirect), Error> {
-    let auth = s.auth_state.as_ref().ok_or(Error::NotFound)?;
+    jar: CookieJar,
+    Form(req): Form<VerifyRecoveryRequest>,
+) -> Response {
+    let error_url = format!(
+        "/auth/recover?sent=true&username={}&error=invalid+or+expired+code",
+        percent_encode(&req.username)
+    );
+
+    let Some(auth) = s.auth_state.as_ref() else {
+        return Redirect::to("/").into_response();
+    };
 
     // Atomically remove the OTC — prevents any race between check and delete.
     // The OTC is consumed whether the code matches or not (no brute-force retries).
     let removed = auth.otc_store.write().await.remove(&req.username);
-    let (stored_code, created_at) = removed.ok_or(Error::InvalidRecoveryCode)?;
+    let Some((stored_code, created_at)) = removed else {
+        return Redirect::to(&error_url).into_response();
+    };
 
-    if created_at.elapsed() > OTC_TTL {
-        return Err(Error::InvalidRecoveryCode);
+    if created_at.elapsed() > OTC_TTL || req.code != stored_code {
+        return Redirect::to(&error_url).into_response();
     }
 
-    if req.code != stored_code {
-        return Err(Error::InvalidRecoveryCode);
-    }
-
-    let (user_id, _) = auth
-        .load_passkeys(&req.username)
-        .await?
-        .ok_or(Error::InvalidRecoveryCode)?;
+    let Ok(Some((user_id, _))) = auth.load_passkeys(&req.username).await else {
+        return Redirect::to(&error_url).into_response();
+    };
 
     let role = auth.role_for(&req.username);
     auth.cleanup_sessions().await;
@@ -765,8 +860,8 @@ pub async fn verify_recovery(
 
     tracing::info!(username = %req.username, "user recovered account via OTC");
 
-    let jar = CookieJar::new().add(make_session_cookie(token));
-    Ok((jar, Redirect::to("/")))
+    let jar = jar.add(make_session_cookie(token));
+    (jar, Redirect::to("/")).into_response()
 }
 
 // ─── Tests ────────────────────────────────────────────────────────────────────
@@ -792,7 +887,7 @@ impl AuthState {
             db,
             session_store: Arc::new(RwLock::new(HashMap::new())),
             reg_states: Arc::new(Mutex::new(HashMap::new())),
-            auth_states: Arc::new(Mutex::new(HashMap::new())),
+            discoverable_states: Arc::new(Mutex::new(HashMap::new())),
             otc_store: Arc::new(RwLock::new(HashMap::new())),
             http_client: reqwest::Client::new(),
         })
@@ -837,7 +932,7 @@ mod tests {
         let store = Arc::new(BreakerStore::from_data(data).unwrap());
         let breaker_content = Arc::new(BreakerContent::new(store.as_ref()));
         let breaker_detail_store: Arc<dyn BreakerDetailStore> = store;
-        let index = Index::new(Routes::default(), false).await.unwrap();
+        let index = Index::new(Routes::default(), false, false).await.unwrap();
 
         ServerState {
             certificate: Arc::from("fake-cert"),
@@ -889,7 +984,7 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(res.status(), StatusCode::SEE_OTHER);
-        assert_eq!(res.headers().get("location").unwrap(), "/auth/login");
+        assert_eq!(res.headers().get("location").unwrap(), "/auth/login?next=/gm-only");
     }
 
     #[tokio::test]
@@ -938,10 +1033,8 @@ mod tests {
         Request::builder()
             .method("POST")
             .uri("/auth/recover/verify")
-            .header("content-type", "application/json")
-            .body(Body::from(format!(
-                r#"{{"username":"{username}","code":"{code}"}}"#
-            )))
+            .header("content-type", "application/x-www-form-urlencoded")
+            .body(Body::from(format!("username={username}&code={code}")))
             .unwrap()
     }
 
@@ -969,28 +1062,32 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn verify_recovery_no_otc_returns_400() {
+    async fn verify_recovery_no_otc_redirects_with_error() {
         let state = state_with_auth().await;
         let res = recovery_router(state)
             .oneshot(verify_request("alice", "ABCDEF"))
             .await
             .unwrap();
-        assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+        assert_eq!(res.status(), StatusCode::SEE_OTHER);
+        let loc = res.headers().get("location").unwrap().to_str().unwrap();
+        assert!(loc.contains("error="), "expected error param in redirect: {loc}");
     }
 
     #[tokio::test]
-    async fn verify_recovery_wrong_code_returns_400() {
+    async fn verify_recovery_wrong_code_redirects_with_error() {
         let state = state_with_auth().await;
         insert_otc(&state, "alice", "ABCDEF").await;
         let res = recovery_router(state)
             .oneshot(verify_request("alice", "XXXXXX"))
             .await
             .unwrap();
-        assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+        assert_eq!(res.status(), StatusCode::SEE_OTHER);
+        let loc = res.headers().get("location").unwrap().to_str().unwrap();
+        assert!(loc.contains("error="), "expected error param in redirect: {loc}");
     }
 
     #[tokio::test]
-    async fn verify_recovery_expired_otc_returns_400() {
+    async fn verify_recovery_expired_otc_redirects_with_error() {
         let state = state_with_auth().await;
         {
             let auth = state.auth_state.as_ref().unwrap();
@@ -1004,7 +1101,9 @@ mod tests {
             .oneshot(verify_request("alice", "ABCDEF"))
             .await
             .unwrap();
-        assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+        assert_eq!(res.status(), StatusCode::SEE_OTHER);
+        let loc = res.headers().get("location").unwrap().to_str().unwrap();
+        assert!(loc.contains("error="), "expected error param in redirect: {loc}");
     }
 
     #[tokio::test]

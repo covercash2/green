@@ -26,7 +26,7 @@
 use std::{
     net::SocketAddr,
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{Arc, RwLock},
 };
 
 use axum::{extract::State, routing::get};
@@ -175,7 +175,8 @@ impl ServerState {
         };
 
         let has_notes = notes_store.is_some();
-        let index = Index::new(config.routes.clone(), has_notes).await?;
+        let has_mqtt = config.mqtt.is_some();
+        let index = Index::new(config.routes.clone(), has_notes, has_mqtt).await?;
 
         let store = Arc::new(BreakerStore::from_data(breaker_data)?);
         let breaker_content = Arc::new(breaker::BreakerContent::new(store.as_ref()));
@@ -190,11 +191,21 @@ impl ServerState {
             let (tx, _) = tokio::sync::broadcast::channel(256);
             let task_tx = tx.clone();
             let task_config = mqtt_config.clone();
+            let last_status = Arc::new(RwLock::new("connecting".to_string()));
+            let task_last_status = Arc::clone(&last_status);
+            let recent_messages = Arc::new(RwLock::new(
+                std::collections::VecDeque::with_capacity(mqtt_config.scrollback),
+            ));
+            let task_recent = Arc::clone(&recent_messages);
             let _ = tokio::spawn(async move {
-                mqtt::run_mqtt_task(task_config, task_tx).await;
+                mqtt::run_mqtt_task(task_config, task_tx, task_last_status, task_recent).await;
                 tracing::error!("mqtt task exited unexpectedly");
             });
-            Some(Arc::new(mqtt::MqttState { tx }))
+            Some(Arc::new(mqtt::MqttState {
+                tx,
+                last_status,
+                recent_messages,
+            }))
         } else {
             None
         };
@@ -228,8 +239,8 @@ fn build_router(state: ServerState) -> axum::Router {
         .route(Route::AuthRegister.as_str(), get(auth::register_page))
         .route("/auth/register/challenge", axum::routing::post(auth::start_registration))
         .route("/auth/register/finish", axum::routing::post(auth::finish_registration))
-        .route("/auth/login/challenge", axum::routing::post(auth::start_authentication))
-        .route("/auth/login/finish", axum::routing::post(auth::finish_authentication))
+        .route("/auth/login/challenge/discoverable", axum::routing::post(auth::start_discoverable_auth))
+        .route("/auth/login/finish/discoverable", axum::routing::post(auth::finish_discoverable_auth))
         .route("/auth/logout", axum::routing::post(auth::logout))
         .route("/auth/recover", get(auth::recover_page).post(auth::start_recovery))
         .route("/auth/recover/verify", axum::routing::post(auth::verify_recovery))
@@ -300,6 +311,11 @@ impl Config {
             && let Some(ref mut auth) = config.auth
         {
             auth.db_url = db_url;
+        }
+        if let Ok(pw) = std::env::var("GREEN_MQTT_PASSWORD")
+            && let Some(ref mut mqtt) = config.mqtt
+        {
+            mqtt.password = Some(pw);
         }
         Ok(config)
     }

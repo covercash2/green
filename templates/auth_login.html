@@ -5,17 +5,7 @@
 {% block content %}
 <h1 class="leet-h1">sign in</h1>
 <div class="leet-form-container">
-    <form id="auth-form" class="leet-form" onsubmit="return false;">
-        <input
-            type="text"
-            id="username"
-            class="leet-input"
-            placeholder="username"
-            autocomplete="username webauthn"
-            autocorrect="off"
-            autocapitalize="off"
-            spellcheck="false"
-        >
+    <form id="auth-form" class="leet-form" data-next="{{ next_url }}" onsubmit="return false;">
         <button type="button" id="auth-btn" class="leet-button">sign in with passkey</button>
         <div id="auth-error" class="leet-error" style="display:none;"></div>
     </form>
