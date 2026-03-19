@@ -26,7 +26,7 @@
 use std::{
     net::SocketAddr,
     path::{Path, PathBuf},
-    sync::{Arc, RwLock},
+    sync::Arc,
 };
 
 use axum::{extract::State, routing::get};
@@ -191,9 +191,9 @@ impl ServerState {
             let (tx, _) = tokio::sync::broadcast::channel(256);
             let task_tx = tx.clone();
             let task_config = mqtt_config.clone();
-            let last_status = Arc::new(RwLock::new("connecting".to_string()));
+            let last_status = Arc::new(tokio::sync::RwLock::new("connecting".to_string()));
             let task_last_status = Arc::clone(&last_status);
-            let recent_messages = Arc::new(RwLock::new(
+            let recent_messages = Arc::new(tokio::sync::RwLock::new(
                 std::collections::VecDeque::with_capacity(mqtt_config.scrollback),
             ));
             let task_recent = Arc::clone(&recent_messages);

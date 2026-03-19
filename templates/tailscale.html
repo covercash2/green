@@ -25,8 +25,9 @@
             <div class="ts-field"><span class="ts-key">dns</span><span class="ts-val">{{ self_peer.dns_name }}</span></div>
             {% endif %}
             <div class="ts-field"><span class="ts-key">os</span><span class="ts-val">{{ self_peer.os }}</span></div>
-            {% if !self_peer.ips_str().is_empty() %}
-            <div class="ts-field"><span class="ts-key">ips</span><span class="ts-val">{{ self_peer.ips_str() }}</span></div>
+            {% let ips = self_peer.ips_str() %}
+            {% if !ips.is_empty() %}
+            <div class="ts-field"><span class="ts-key">ips</span><span class="ts-val">{{ ips }}</span></div>
             {% endif %}
             {% if self_peer.rx_bytes.is_some() || self_peer.tx_bytes.is_some() %}
             <div class="ts-field">

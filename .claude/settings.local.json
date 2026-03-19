@@ -14,7 +14,6 @@
       "Bash(xargs ls:*)",
       "Bash(node:*)",
       "Bash(wc:*)",
-      "Bash(PGPASSWORD='zixN^gqA8bAu$0LXi3*' psql:*)",
       "Bash(PGPASSWORD='devpassword' psql:*)",
       "WebSearch",
       "WebFetch(domain:search.nixos.org)",

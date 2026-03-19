@@ -317,7 +317,9 @@ impl FromRequestParts<ServerState> for AuthUser {
             .ok_or_else(|| Redirect::to("/").into_response())?;
 
         let next = parts.uri.path();
-        let login_url = format!("/auth/login?next={next}");
+        let next_encoded: String =
+            url::form_urlencoded::byte_serialize(next.as_bytes()).collect();
+        let login_url = format!("/auth/login?next={next_encoded}");
 
         let token = session_token_from_parts(parts)
             .ok_or_else(|| Redirect::to(&login_url).into_response())?;
@@ -984,7 +986,7 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(res.status(), StatusCode::SEE_OTHER);
-        assert_eq!(res.headers().get("location").unwrap(), "/auth/login?next=/gm-only");
+        assert_eq!(res.headers().get("location").unwrap(), "/auth/login?next=%2Fgm-only");
     }
 
     #[tokio::test]

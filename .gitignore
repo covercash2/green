@@ -11,3 +11,6 @@ secrets
 logs.ndjson
 errors.log
 .watch_state.toml
+
+# Local Claude settings (may contain personal credentials)
+.claude/settings.local.json

@@ -10,13 +10,13 @@ layout {
         children
     }
 
-    tab name="stderr" cwd="~/github/covercash2/green/" focus=true {
+    tab name="stderr" cwd="." focus=true {
         pane borderless=true command="tail" {
             args "-f" "errors.log"
         }
     }
 
-    tab name="logs" cwd="~/github/covercash2/green/" {
+    tab name="logs" cwd="." {
         pane borderless=true command="nu" {
             args "overlay" "use" "scripts/green.nu" ";" "green" "logs" "tail"
         }

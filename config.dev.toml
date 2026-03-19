@@ -6,7 +6,7 @@ vault_path = "fixtures/vault"
 [auth]
 rp_id = "chrash.net"
 rp_origin = "https://dev.green.chrash.net"
-db_url = "postgres://green:devpassword@localhost/green"
+db_url = "postgres://user:password@localhost/dbname"
 gm_users = ["chrash"]
 ntfy_url = "http://localhost:8083/green-recovery"
 

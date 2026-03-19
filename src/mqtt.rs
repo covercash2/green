@@ -5,7 +5,7 @@ use std::{
     convert::Infallible,
     future::Future,
     pin::Pin,
-    sync::{Arc, RwLock},
+    sync::Arc,
     time::Duration,
 };
 
@@ -22,7 +22,7 @@ use axum::{
 use futures::StreamExt as _;
 use rumqttc::{AsyncClient, Event as MqttEvent, MqttOptions, Packet, QoS};
 use serde::{Deserialize, Serialize};
-use tokio::sync::broadcast;
+use tokio::sync::{RwLock, broadcast};
 
 use crate::{
     auth::{AuthUserInfo, GmUser},
@@ -132,7 +132,7 @@ async fn handle_conn_ack(
     port: u16,
 ) {
     tracing::info!(host, port, "MQTT connected");
-    *last_status.write().expect("last_status poisoned") = "connected".into();
+    *last_status.write().await = "connected".into();
     let _ = tx.send(BrokerEvent::Status { status: "connected".into() });
     // Re-subscribe after every (re)connect so reconnects pick up the same topics.
     for topic in topics {
@@ -144,7 +144,7 @@ async fn handle_conn_ack(
 
 /// Handle a Publish packet: store in the ring buffer and broadcast to SSE clients.
 /// Extracted for testability — called by [`run_mqtt_task`] on every received message.
-fn handle_publish(
+async fn handle_publish(
     topic: String,
     payload: &[u8],
     scrollback: usize,
@@ -158,7 +158,7 @@ fn handle_publish(
     };
     tracing::debug!(topic = %msg.topic, "MQTT message received");
     {
-        let mut buf = recent_messages.write().expect("recent_messages poisoned");
+        let mut buf = recent_messages.write().await;
         if buf.len() == scrollback {
             let _ = buf.pop_front();
         }
@@ -169,13 +169,13 @@ fn handle_publish(
 
 /// Handle an event loop error: update status and broadcast.
 /// Extracted for testability — the retry sleep stays in [`run_mqtt_task`].
-fn handle_error(
+async fn handle_error(
     err: &rumqttc::ConnectionError,
     last_status: &Arc<RwLock<String>>,
     tx: &broadcast::Sender<BrokerEvent>,
 ) {
     tracing::warn!(%err, "MQTT eventloop error, will retry");
-    *last_status.write().expect("last_status poisoned") = "error".into();
+    *last_status.write().await = "error".into();
     let _ = tx.send(BrokerEvent::Status { status: "error".into() });
 }
 
@@ -200,14 +200,14 @@ pub async fn run_mqtt_task(
     loop {
         match eventloop.poll().await {
             Ok(MqttEvent::Incoming(Packet::Publish(publish))) => {
-                handle_publish(publish.topic, &publish.payload, config.scrollback, &tx, &recent_messages);
+                handle_publish(publish.topic, &publish.payload, config.scrollback, &tx, &recent_messages).await;
             }
             Ok(MqttEvent::Incoming(Packet::ConnAck(_))) => {
                 handle_conn_ack(&client, &config.topics, &last_status, &tx, &config.host, config.port).await;
             }
             Ok(_) => {}
             Err(err) => {
-                handle_error(&err, &last_status, &tx);
+                handle_error(&err, &last_status, &tx).await;
                 tokio::time::sleep(Duration::from_secs(5)).await;
             }
         }
@@ -343,7 +343,7 @@ mod tests {
         let (tx, mut rx) = broadcast::channel(16);
         let last_status = Arc::new(RwLock::new("connecting".to_string()));
         handle_conn_ack(&MockSubscriber::default(), &[], &last_status, &tx, "h", 1883).await;
-        assert_eq!(&*last_status.read().unwrap(), "connected");
+        assert_eq!(&*last_status.read().await, "connected");
         assert!(matches!(rx.try_recv(), Ok(BrokerEvent::Status { status }) if status == "connected"));
     }
 
@@ -365,12 +365,12 @@ mod tests {
         assert_eq!(*subscribed.lock().unwrap(), vec!["home/#", "sensors/+"]);
     }
 
-    #[test]
-    fn publish_stored_in_buffer_and_broadcast() {
+    #[tokio::test]
+    async fn publish_stored_in_buffer_and_broadcast() {
         let (tx, mut rx) = broadcast::channel(16);
         let recent = Arc::new(RwLock::new(VecDeque::new()));
-        handle_publish("home/temp".to_string(), b"21.5", 200, &tx, &recent);
-        let buf = recent.read().unwrap();
+        handle_publish("home/temp".to_string(), b"21.5", 200, &tx, &recent).await;
+        let buf = recent.read().await;
         assert_eq!(buf.len(), 1);
         assert_eq!(buf[0].topic, "home/temp");
         assert_eq!(buf[0].payload, "21.5");
@@ -378,29 +378,29 @@ mod tests {
         assert!(matches!(rx.try_recv(), Ok(BrokerEvent::Message(m)) if m.topic == "home/temp"));
     }
 
-    #[test]
-    fn publish_caps_buffer_at_scrollback_limit() {
+    #[tokio::test]
+    async fn publish_caps_buffer_at_scrollback_limit() {
         let (tx, _rx) = broadcast::channel(256);
         let recent = Arc::new(RwLock::new(VecDeque::new()));
         let cap = 3;
         for i in 0..5u8 {
-            handle_publish(format!("t/{i}"), &[i], cap, &tx, &recent);
+            handle_publish(format!("t/{i}"), &[i], cap, &tx, &recent).await;
         }
-        let buf = recent.read().unwrap();
+        let buf = recent.read().await;
         assert_eq!(buf.len(), cap);
         assert_eq!(buf[0].topic, "t/2");
         assert_eq!(buf[cap - 1].topic, "t/4");
     }
 
-    #[test]
-    fn error_sets_status_error_and_broadcasts() {
+    #[tokio::test]
+    async fn error_sets_status_error_and_broadcasts() {
         let (tx, mut rx) = broadcast::channel(16);
         let last_status = Arc::new(RwLock::new("connected".to_string()));
         let err = rumqttc::ConnectionError::Io(std::io::Error::from(
             std::io::ErrorKind::ConnectionReset,
         ));
-        handle_error(&err, &last_status, &tx);
-        assert_eq!(&*last_status.read().unwrap(), "error");
+        handle_error(&err, &last_status, &tx).await;
+        assert_eq!(&*last_status.read().await, "error");
         assert!(matches!(rx.try_recv(), Ok(BrokerEvent::Status { status }) if status == "error"));
     }
 
@@ -671,12 +671,12 @@ pub async fn mqtt_stream_route(
     let current_status = mqtt
         .last_status
         .read()
-        .expect("last_status poisoned")
+        .await
         .clone();
     let backlog: Vec<MqttMessage> = mqtt
         .recent_messages
         .read()
-        .expect("recent_messages poisoned")
+        .await
         .iter()
         .cloned()
         .collect();
