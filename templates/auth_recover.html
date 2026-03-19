@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+
+{% block title %}recover account{% endblock %}
+
+{% block content %}
+<h1 class="leet-h1">recover account</h1>
+<div class="leet-form-container">
+    {% if sent %}
+    <form class="leet-form" method="POST" action="/auth/recover/verify">
+        <input type="hidden" name="username" value="{{ username }}">
+        <p class="leet-hint">check your ntfy app for a 6-character code</p>
+        <input
+            type="text"
+            name="code"
+            class="leet-input"
+            placeholder="recovery code"
+            autocorrect="off"
+            autocapitalize="characters"
+            spellcheck="false"
+            maxlength="6"
+            autofocus
+        >
+        {% if let Some(err) = error %}
+        <div class="leet-error">{{ err }}</div>
+        {% endif %}
+        <button type="submit" class="leet-button">verify code</button>
+    </form>
+    {% else %}
+    <form class="leet-form" method="POST" action="/auth/recover">
+        <input
+            type="text"
+            name="username"
+            class="leet-input"
+            placeholder="username"
+            autocorrect="off"
+            autocapitalize="off"
+            spellcheck="false"
+            autofocus
+        >
+        <button type="submit" class="leet-button">send recovery code</button>
+    </form>
+    {% endif %}
+    <p class="leet-hint"><a href="/auth/login" class="leet-link">back to sign in</a></p>
+</div>
+{% endblock %}

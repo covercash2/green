@@ -11,4 +11,3 @@ pub struct RouteInfo {
     pub url: String,
     pub description: String,
 }
-

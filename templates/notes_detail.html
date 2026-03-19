@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+
+{% block title %}{{ title }}{% endblock %}
+
+{% block content %}
+<a href="/notes" class="leet-link">&larr; notes</a>
+<div class="prose notes-detail">
+    {{ content|safe }}
+</div>
+{% endblock %}

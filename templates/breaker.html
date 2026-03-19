@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+
+{% block title %}breaker box{% endblock %}
+
+{% block content %}
+<a href="/" class="leet-link">&larr; back</a>
+<div class="prose">
+    {{ content|safe }}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://unpkg.com/htmx.org@2.0.4/dist/htmx.min.js"></script>
+{% endblock %}

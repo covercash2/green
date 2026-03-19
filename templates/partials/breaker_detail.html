@@ -1,0 +1,24 @@
+<div class="breaker-detail-content">
+  <button class="breaker-detail-close"
+          onclick="var d=this.closest('.breaker-row-detail');d.innerHTML='';d.dataset.activeKey='';">&#215;</button>
+  {% match detail %}
+  {% when Some(d) %}
+    {% if let Some(amp) = &d.amperage %}
+    <div class="breaker-detail-field">
+      <span class="breaker-detail-key">amperage</span> {{ amp }}
+    </div>
+    {% endif %}
+    {% if let Some(devices) = &d.devices %}
+    <ul class="breaker-detail-devices">
+      {% for device in devices %}<li>{{ device }}</li>{% endfor %}
+    </ul>
+    {% endif %}
+    {% if let Some(notes) = &d.notes %}
+    <div class="breaker-detail-field">
+      <span class="breaker-detail-key">notes</span> {{ notes }}
+    </div>
+    {% endif %}
+  {% when None %}
+    <span class="breaker-detail-empty">no details recorded</span>
+  {% endmatch %}
+</div>

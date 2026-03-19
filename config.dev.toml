@@ -1,12 +1,20 @@
 port = 10000
 ca_path = "fixtures/testCA.pem"
-log_level = "info"
+log_level = "debug"
+vault_path = "fixtures/vault"
 
 [auth]
 rp_id = "chrash.net"
-rp_origin = "https://home.green.chrash.net"
-db_url = "postgres://green:REDACTED@localhost/green"
+rp_origin = "https://dev.green.chrash.net"
+db_url = "postgres://green:devpassword@localhost/green"
 gm_users = ["chrash"]
+ntfy_url = "http://localhost:8083/green-recovery"
+
+[mqtt]
+host = "localhost"
+port = 1883
+username = "green"
+# GREEN_MQTT_PASSWORD env var supplies the password at runtime
 
 [routes.foundry]
 url = "foundry.green.chrash.net"
@@ -35,4 +43,3 @@ description = "PostgreSQL database server"
 [routes.homeassistant]
 url = "homeassistant.green.chrash.net"
 description = "Home Assistant for home automation"
-

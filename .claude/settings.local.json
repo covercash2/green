@@ -1,0 +1,39 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cargo build:*)",
+      "Bash(cargo test:*)",
+      "Bash(jj st:*)",
+      "Bash(just:*)",
+      "Bash(curl:*)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:docs.rs)",
+      "Bash(find:*)",
+      "Bash(cargo check:*)",
+      "Bash(cargo:*)",
+      "Bash(xargs ls:*)",
+      "Bash(node:*)",
+      "Bash(wc:*)",
+      "Bash(PGPASSWORD='zixN^gqA8bAu$0LXi3*' psql:*)",
+      "Bash(PGPASSWORD='devpassword' psql:*)",
+      "WebSearch",
+      "WebFetch(domain:search.nixos.org)",
+      "WebFetch(domain:mynixos.com)",
+      "WebFetch(domain:docs.ntfy.sh)",
+      "Bash(npm test:*)",
+      "Bash(ls:*)",
+      "Bash(nix flake:*)",
+      "Bash(jj status:*)",
+      "Bash(jj log:*)",
+      "Bash(jj bookmark:*)",
+      "Bash(jj diff:*)",
+      "Bash(nu:*)",
+      "Bash(nix search:*)",
+      "Bash(nix develop:*)",
+      "Bash(grep:*)",
+      "Bash(npm run:*)",
+      "Bash(mosquitto_sub:*)",
+      "Bash(timeout 8 mosquitto_sub:*)"
+    ]
+  }
+}

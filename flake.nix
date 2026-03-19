@@ -31,8 +31,23 @@
         overlays = [ (import rust-overlay) ];
         pkgs = import nixpkgs { inherit system overlays; };
 
-        # Properly accessing crane's lib
-        craneLib = (crane.mkLib pkgs);
+        # Rust toolchain with llvm-tools for coverage instrumentation.
+        # All dev tools (rust-analyzer, rustfmt, clippy) are bundled here so
+        # the devShell gets a single coherent toolchain rather than mixing
+        # nixpkgs Rust packages with the rust-overlay toolchain.
+        rustToolchain = pkgs.rust-bin.stable.latest.default.override {
+          extensions = [
+            "llvm-tools"   # required by cargo-llvm-cov
+            "rust-src"     # required by rust-analyzer
+            "rust-analyzer"
+            "rustfmt"
+            "clippy"
+          ];
+        };
+
+        # Crane library pinned to our toolchain so that builds, tests, and
+        # coverage all use the same Rust/LLVM version.
+        craneLib = (crane.mkLib pkgs).overrideToolchain rustToolchain;
 
         # Common arguments for crane
         commonArgs = {
@@ -42,6 +57,10 @@
             fileset = nixpkgs.lib.fileset.unions [
               (craneLib.fileset.commonCargoSources ./.)
               (nixpkgs.lib.fileset.maybeMissing ./templates)
+              (nixpkgs.lib.fileset.maybeMissing ./migrations)
+              (nixpkgs.lib.fileset.maybeMissing ./fixtures)
+              (nixpkgs.lib.fileset.maybeMissing ./assets)
+              ./justfile
             ];
           };
 
@@ -54,10 +73,12 @@
           nativeBuildInputs = with pkgs; [
             pkg-config
             makeWrapper
+            just
           ];
         };
 
-        # Build dependencies separately - allows better caching
+        # Build dependencies separately — allows better caching across check
+        # derivations that share the same source + flags.
         cargoArtifacts = craneLib.buildDepsOnly commonArgs;
 
         # Build the actual package
@@ -70,41 +91,65 @@
             pname = "green";
             version = "0.1.0";
 
-            # Augment wrapper path if needed
             postInstall = ''
+              mkdir -p $out/share/green
+              cp -r assets $out/share/green/assets
               wrapProgram $out/bin/green \
+                --chdir "$out/share/green" \
                 --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.openssl ]}
             '';
           }
         );
+
+        # Run tests with nextest (faster, better output than cargo test).
+        green-nextest = craneLib.cargoNextest (
+          commonArgs
+          // {
+            inherit cargoArtifacts;
+            partitions = 1;
+            partitionType = "count";
+          }
+        );
+
+        # Coverage check: threshold is defined in justfile (coverage_threshold).
+        # just is a nativeBuildInput so the sandbox can call `just coverage-nix`.
+        green-coverage = craneLib.cargoLlvmCov (
+          commonArgs
+          // {
+            inherit cargoArtifacts;
+            nativeBuildInputs = (commonArgs.nativeBuildInputs or [ ]) ++ [ pkgs.cargo-nextest ];
+            buildPhaseCargoCommand = "just coverage-nix $out";
+          }
+        );
       in
       {
-        # Expose the package
         packages = {
           default = green;
-          green = green;
-        };
-
-        # Add a check to verify the build works
-        checks = {
           inherit green;
         };
 
-        # Development shell
+        # checks run during `nix flake check` and `nix build .#checks.<system>.*`
+        checks = {
+          inherit green green-nextest green-coverage;
+        };
+
+        # Development shell — uses the same coherent rustToolchain as crane so
+        # that `cargo llvm-cov nextest` works out of the box without any extra
+        # rustup component installation.
         devShells.default = pkgs.mkShell {
           inputsFrom = [ green ];
-          packages = with pkgs; [
-            rustc
-            cargo
-            rust-analyzer
-            rustfmt
-            clippy
+          packages = [
+            rustToolchain
 
-            just
-            just-lsp
-            taplo
-            typos
-            typos-lsp
+            pkgs.cargo-nextest
+            pkgs.cargo-llvm-cov
+
+            pkgs.just
+            pkgs.just-lsp
+            pkgs.taplo
+            pkgs.typos
+            pkgs.typos-lsp
+            pkgs.biome
           ];
         };
       }
@@ -219,6 +264,52 @@
               description = "Directory where the bot stores its data";
               example = "/var/lib/green";
             };
+
+            auth = mkOption {
+              default = null;
+              description = "WebAuthn / passkey authentication configuration. If null, auth routes are disabled.";
+              type = types.nullOr (types.submodule {
+                options = {
+                  rpId = mkOption {
+                    type = types.str;
+                    example = "example.com";
+                    description = "WebAuthn relying party ID (typically the registrable domain suffix)";
+                  };
+                  rpOrigin = mkOption {
+                    type = types.str;
+                    example = "https://green.example.com";
+                    description = "WebAuthn relying party origin URL";
+                  };
+                  dbUrl = mkOption {
+                    type = types.str;
+                    example = "postgres://green:password@localhost/green";
+                    description = "PostgreSQL connection URL for user and passkey storage";
+                  };
+                  gmUsers = mkOption {
+                    type = types.listOf types.str;
+                    default = [];
+                    example = [ "alice" ];
+                    description = "Usernames that receive the GM role";
+                  };
+                  ntfyUrl = mkOption {
+                    type = types.nullOr types.str;
+                    default = null;
+                    example = "https://ntfy.example.com/my-secret-topic";
+                    description = "ntfy topic URL for sending account recovery codes. If null, recovery notifications are not sent.";
+                  };
+                  dbUrlFile = mkOption {
+                    type = types.nullOr types.path;
+                    default = null;
+                    example = "/run/secrets/green-db-url";
+                    description = ''
+                      Path to a file containing <literal>GREEN_DB_URL=postgres://...</literal>.
+                      When set, this overrides <option>dbUrl</option> at runtime so that
+                      credentials never appear in the Nix store.
+                    '';
+                  };
+                };
+              });
+            };
           };
 
           config = lib.mkIf cfg.enable {
@@ -241,7 +332,16 @@
               log_level = "${cfg.logLevel}"
               ca_path = "${cfg.caPath}"
 
-              ${lib.concatStringsSep "\n" (lib.mapAttrsToList (k: v: "[routes.${k}]\nurl = \"${v.url}\"\ndescription = \"${v.description}\"" ) cfg.routes)}
+              ${lib.concatStringsSep "\n" (lib.mapAttrsToList (k: v: "[routes.${k}]\nurl = \"${v.url}\"\ndescription = \"${v.description}\"") cfg.routes)}
+
+              ${lib.optionalString (cfg.auth != null) ''
+              [auth]
+              rp_id = "${cfg.auth.rpId}"
+              rp_origin = "${cfg.auth.rpOrigin}"
+              db_url = "${cfg.auth.dbUrl}"
+              gm_users = [${lib.concatStringsSep ", " (map (u: "\"${u}\"") cfg.auth.gmUsers)}]
+              ${lib.optionalString (cfg.auth.ntfyUrl != null) "ntfy_url = \"${cfg.auth.ntfyUrl}\""}
+              ''}
             '';
 
             systemd.services.green = {
@@ -257,6 +357,9 @@
                 '';
                 User = cfg.user;
                 Group = cfg.group;
+                EnvironmentFile = lib.optional
+                  (cfg.auth != null && cfg.auth.dbUrlFile != null)
+                  cfg.auth.dbUrlFile;
                 Restart = "always";
                 RestartSec = "10";
 

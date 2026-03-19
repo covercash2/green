@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+
+{% block title %}qr code{% endblock %}
+
+{% block content %}
+<a href="/" class="leet-link">&larr; back</a>
+<h1 class="leet-h1">qr code</h1>
+<form
+    hx-post="/api/qr"
+    hx-target="#qr-result"
+    hx-swap="innerHTML"
+    hx-ext="json-enc"
+    class="leet-form"
+>
+    <input
+        type="text"
+        name="data"
+        class="leet-input"
+        placeholder="url or text"
+        autocomplete="off"
+        autocorrect="off"
+        autocapitalize="off"
+        spellcheck="false"
+    >
+    <button type="submit" class="leet-button">generate</button>
+</form>
+<div id="qr-result" class="qr-result"></div>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://unpkg.com/htmx.org@2.0.4/dist/htmx.min.js"></script>
+<script src="https://unpkg.com/htmx-ext-json-enc@2.0.1/json-enc.js"></script>
+{% endblock %}
