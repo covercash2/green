@@ -4,7 +4,7 @@ log_level = "debug"
 vault_path = "fixtures/vault"
 
 [auth]
-rp_id = "chrash.net"
+rp_id = "dev.green.chrash.net"
 rp_origin = "https://dev.green.chrash.net"
 db_url = "postgres://green:devpassword@localhost/green"
 gm_users = ["chrash"]

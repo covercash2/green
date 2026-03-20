@@ -33,7 +33,9 @@
       "Bash(grep:*)",
       "Bash(npm run:*)",
       "Bash(mosquitto_sub:*)",
-      "Bash(timeout 8 mosquitto_sub:*)"
+      "Bash(timeout 8 mosquitto_sub:*)",
+      "Bash(jj show:*)",
+      "Bash(psql:*)"
     ]
   }
 }
