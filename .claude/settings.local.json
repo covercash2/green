@@ -35,7 +35,8 @@
       "Bash(mosquitto_sub:*)",
       "Bash(timeout 8 mosquitto_sub:*)",
       "Bash(jj show:*)",
-      "Bash(psql:*)"
+      "Bash(psql:*)",
+      "Bash(bun test:*)"
     ]
   }
 }

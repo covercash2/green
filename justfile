@@ -19,13 +19,25 @@ dev:
 test:
   cargo nextest run
 
+# compile TS → assets/js/ (commit the output)
+build-js:
+  deno bundle --platform=browser --minify --outdir assets/js src/js/auth-login.ts src/js/auth-register.ts src/js/mqtt.ts
+
+# type-check TS source files
+check-js:
+  deno check src/js/
+
+# run JS tests (no type-check; test mocks are intentionally loose)
+js-test:
+  deno test --no-check test/js/*.test.ts
+
 # run JS tests with coverage report
 js-coverage:
-  npm run coverage
+  deno test --no-check --coverage=.deno-coverage test/js/*.test.ts
 
-# lint JS with biome
+# lint JS/TS with biome
 lint-js:
-  biome lint assets/js/ test/js/
+  biome lint src/js/ test/js/
 
 # run all tests (Rust + JS)
 test-all: test js-coverage

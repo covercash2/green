@@ -962,3 +962,25 @@
     word-break: break-all;
     min-width: 0;
 }
+
+/* --- MQTT Pagination Controls --- */
+
+.mqtt-controls { display: flex; gap: 0.3rem; flex-wrap: wrap; margin-bottom: 0.75rem; }
+
+.mqtt-page-btn {
+    font-family: var(--font-mono); font-size: 0.78rem;
+    background: transparent; color: var(--color-fg-dim);
+    border: 1px dashed rgba(51,255,51,0.3); padding: 0.2rem 0.5rem;
+    cursor: pointer; user-select: none;
+}
+
+.mqtt-page-btn:hover:not(:disabled) { border-style: solid; color: var(--color-fg); }
+.mqtt-page-btn:disabled { opacity: 0.25; cursor: default; }
+.mqtt-page-active { border-style: solid; color: var(--color-accent); }
+
+.mqtt-page-ellipsis {
+    font-family: var(--font-mono); font-size: 0.78rem;
+    color: var(--color-fg-dim); opacity: 0.4; padding: 0.2rem 0.25rem;
+}
+
+.mqtt-page-new { color: var(--color-accent); font-size: 0.7rem; margin-left: 0.15rem; }
