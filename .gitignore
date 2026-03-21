@@ -13,3 +13,4 @@ errors.log
 .watch_state.toml
 
 .deno-coverage/
+node_modules/

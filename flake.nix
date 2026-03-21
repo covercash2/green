@@ -74,6 +74,7 @@
             pkg-config
             makeWrapper
             just
+            nushell
           ];
         };
 
@@ -121,16 +122,88 @@
             buildPhaseCargoCommand = "just coverage-nix $out";
           }
         );
+
+        # Fixed-output derivation: pre-fetch all JS/Deno dependencies.
+        # Network access is allowed here; the output hash pins exact contents.
+        #
+        # To update after bumping deps in deno.json / deno.lock:
+        #   nix build .#packages.x86_64-linux.deno-deps --rebuild 2>&1 | grep "got:"
+        # then replace outputHash with the printed value.
+        denoPackageCache = pkgs.stdenv.mkDerivation {
+          name = "green-js-deps";
+
+          src = nixpkgs.lib.fileset.toSource {
+            root = ./.;
+            fileset = nixpkgs.lib.fileset.unions [
+              ./deno.json
+              ./deno.lock
+              ./package.json
+            ];
+          };
+
+          nativeBuildInputs = [ pkgs.deno ];
+
+          outputHashMode = "recursive";
+          outputHashAlgo = "sha256";
+          outputHash = "sha256-km152hKHFVoelXhP1odT1Nr80bGs2NVuCuKnlzKocgc=";
+
+          unpackPhase = ''
+            cp -r $src/. .
+            chmod -R +w .
+          '';
+
+          buildPhase = ''
+            export HOME=$TMPDIR
+            export DENO_DIR=$TMPDIR/deno-dir
+            deno install --frozen
+          '';
+
+          installPhase = ''
+            mkdir -p $out
+            cp -r node_modules $out/node_modules
+            cp -r $DENO_DIR $out/deno-dir
+          '';
+        };
+
+        # Run JS tests inside the Nix sandbox using pre-fetched deps.
+        green-js-test = pkgs.runCommand "green-js-test"
+          {
+            src = nixpkgs.lib.fileset.toSource {
+              root = ./.;
+              fileset = nixpkgs.lib.fileset.unions [
+                ./deno.json
+                ./deno.lock
+                ./src/js
+                ./test/js
+                ./justfile
+              ];
+            };
+            nativeBuildInputs = [ pkgs.deno pkgs.just pkgs.nushell ];
+          }
+          ''
+            cp -r $src/. .
+            chmod -R +w .
+
+            cp -r ${denoPackageCache}/node_modules ./node_modules
+            export DENO_DIR=$TMPDIR/deno-dir
+            cp -r ${denoPackageCache}/deno-dir $DENO_DIR
+            chmod -R +w $DENO_DIR
+            export HOME=$TMPDIR
+
+            just js-test
+            touch $out
+          '';
       in
       {
         packages = {
           default = green;
           inherit green;
+          deno-deps = denoPackageCache;
         };
 
         # checks run during `nix flake check` and `nix build .#checks.<system>.*`
         checks = {
-          inherit green green-nextest green-coverage;
+          inherit green green-nextest green-coverage green-js-test;
         };
 
         # Development shell — uses the same coherent rustToolchain as crane so

@@ -2,16 +2,23 @@
   "version": "5",
   "specifiers": {
     "jsr:@valibot/valibot@*": "1.3.1",
-    "jsr:@valibot/valibot@^1.3.1": "1.3.1"
+    "jsr:@valibot/valibot@^1.3.1": "1.3.1",
+    "npm:@preact/signals-core@1": "1.14.0"
   },
   "jsr": {
     "@valibot/valibot@1.3.1": {
       "integrity": "635faaec9d32a25efca7b4614e7a07306cc03937bfd0679e05530d31081bc501"
     }
   },
+  "npm": {
+    "@preact/signals-core@1.14.0": {
+      "integrity": "sha512-AowtCcCU/33lFlh1zRFf/u+12rfrhtNakj7UpaGEsmMwUKpKWMVvcktOGcwBBNiB4lWrZWc01LhiyyzVklJyaQ=="
+    }
+  },
   "workspace": {
     "dependencies": [
-      "jsr:@valibot/valibot@^1.3.1"
+      "jsr:@valibot/valibot@^1.3.1",
+      "npm:@preact/signals-core@1"
     ]
   }
 }
