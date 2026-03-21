@@ -3,7 +3,8 @@
   "type": "module",
   "private": true,
   "scripts": {
-    "test": "node --test test/js/*.test.js",
-    "coverage": "node --test --experimental-test-coverage test/js/*.test.js"
+    "build": "deno bundle --platform=browser --minify --outdir assets/js src/js/auth-login.ts src/js/auth-register.ts src/js/mqtt.ts",
+    "test": "deno test --no-check test/js/*.test.ts",
+    "coverage": "deno test --no-check --coverage=.deno-coverage test/js/*.test.ts"
   }
 }

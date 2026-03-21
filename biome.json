@@ -2,9 +2,8 @@
   "$schema": "https://biomejs.dev/schemas/2.4.6/schema.json",
   "files": {
     "includes": [
-      "assets/js/**/*.js",
-      "test/js/**/*.js",
-      "!assets/js/simplewebauthn.min.js"
+      "src/js/**/*.ts",
+      "test/js/**/*.ts"
     ]
   },
   "linter": {

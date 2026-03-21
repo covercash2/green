@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { register } from '../../assets/js/auth-register.js';
+import { register } from '../../src/js/auth-register.ts';
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -114,7 +114,7 @@ test('posts to the correct endpoints', async () => {
     const urls = [];
     const mockFetch = async (url, _opts) => {
         urls.push(url);
-        if (url.includes('challenge')) return okJson({});
+        if (url.includes('challenge')) return okJson({ publicKey: {} });
         return okEmpty();
     };
     await register('alice', { startRegistration: async () => ({}), fetch: mockFetch });

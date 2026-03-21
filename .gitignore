@@ -11,3 +11,5 @@ secrets
 logs.ndjson
 errors.log
 .watch_state.toml
+
+.deno-coverage/

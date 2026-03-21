@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { authenticateDiscoverable } from '../../assets/js/auth-login.js';
+import { authenticateDiscoverable } from '../../src/js/auth-login.ts';
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
