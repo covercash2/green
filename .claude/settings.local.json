@@ -36,7 +36,11 @@
       "Bash(timeout 8 mosquitto_sub:*)",
       "Bash(jj show:*)",
       "Bash(psql:*)",
-      "Bash(bun test:*)"
+      "Bash(bun test:*)",
+      "Bash(deno check:*)",
+      "Bash(deno install:*)",
+      "Bash(deno test:*)",
+      "Bash(deno bundle:*)"
     ]
   }
 }

@@ -7,6 +7,8 @@
  * DOM binding at the bottom only runs in the browser.
  */
 
+import { batch, computed, effect, signal } from '@preact/signals-core';
+
 const PAGE_SIZE = 20;
 const MAX_CARDS = 500;
 
@@ -82,7 +84,7 @@ export function renderControls(currentPage: number, total: number, newCount: num
     return parts.join('');
 }
 
-// --- DOM binding (not tested) ---
+// --- DOM binding (browser only, not tested) ---
 
 if (typeof document !== 'undefined') {
     const feed        = document.getElementById('mqtt-feed');
@@ -90,45 +92,58 @@ if (typeof document !== 'undefined') {
     const filterInput = document.getElementById('mqtt-filter') as HTMLInputElement | null;
     const controls    = document.getElementById('mqtt-controls');
 
-    let allCards: Card[] = [];
-    let currentPage = 0;
-    let newCount    = 0;
-    let filterText  = '';
+    // State
+    const allCards    = signal<Card[]>([]);
+    const pageCards   = signal<Card[]>([]);  // feed snapshot — set explicitly, not derived
+    const currentPage = signal(0);
+    const newCount    = signal(0);
+    const filterText  = signal('');
 
-    function render() {
-        const filtered = applyFilter(allCards, filterText);
-        const total    = totalPages(filtered, PAGE_SIZE);
-        if (currentPage >= total) currentPage = Math.max(0, total - 1);
-        const page = getPage(filtered, currentPage, PAGE_SIZE);
+    // Derived
+    const filtered   = computed(() => applyFilter(allCards.value, filterText.value));
+    const totalCount = computed(() => totalPages(filtered.value, PAGE_SIZE));
 
-        if (feed) {
-            feed.innerHTML = '';
-            for (const card of page) {
-                feed.appendChild(card.cloneNode(true));
-            }
-        }
-        if (controls) {
-            controls.innerHTML = renderControls(currentPage, total, newCount);
-        }
+    // Recompute pageCards from current state (call inside batch).
+    function refreshPage() {
+        const total = totalCount.value;
+        if (currentPage.value >= total) currentPage.value = Math.max(0, total - 1);
+        pageCards.value = getPage(filtered.value, currentPage.value, PAGE_SIZE);
     }
+
+    // Feed DOM — only re-renders when pageCards changes.
+    effect(() => {
+        if (!feed) return;
+        feed.innerHTML = '';
+        for (const card of pageCards.value) {
+            feed.appendChild(card.cloneNode(true));
+        }
+    });
+
+    // Controls DOM — re-renders when page, total, or newCount changes.
+    effect(() => {
+        if (!controls) return;
+        controls.innerHTML = renderControls(currentPage.value, totalCount.value, newCount.value);
+    });
 
     controls?.addEventListener('click', (e) => {
         const btn = (e.target as Element).closest('[data-page]') as HTMLButtonElement | null;
         if (!btn || btn.disabled) return;
-        const page     = parseInt(btn.dataset.page!, 10);
-        const filtered = applyFilter(allCards, filterText);
-        const total    = totalPages(filtered, PAGE_SIZE);
-        if (page < 0 || page >= total) return;
-        currentPage = page;
-        newCount    = 0;
-        render();
+        const page = parseInt(btn.dataset.page!, 10);
+        if (page < 0 || page >= totalCount.value) return;
+        batch(() => {
+            currentPage.value = page;
+            newCount.value    = 0;
+            refreshPage();
+        });
     });
 
     filterInput?.addEventListener('input', () => {
-        filterText  = filterInput.value.toLowerCase();
-        currentPage = 0;
-        newCount    = 0;
-        render();
+        batch(() => {
+            filterText.value  = filterInput.value.toLowerCase();
+            currentPage.value = 0;
+            newCount.value    = 0;
+            refreshPage();
+        });
     });
 
     const es = new EventSource('/api/mqtt/stream');
@@ -138,19 +153,27 @@ if (typeof document !== 'undefined') {
     });
 
     es.addEventListener('message', (e) => {
-        const tmp  = document.createElement('div');
+        const tmp = document.createElement('div');
         tmp.innerHTML = (e as MessageEvent).data;
         const card = tmp.firstElementChild;
         if (!card) return;
-        allCards.unshift(card as unknown as Card);
-        if (allCards.length > MAX_CARDS) allCards.length = MAX_CARDS;
-        if (currentPage === 0) {
-            render();
+
+        const cards = allCards.value.slice();
+        cards.unshift(card as unknown as Card);
+        if (cards.length > MAX_CARDS) cards.length = MAX_CARDS;
+
+        if (currentPage.value === 0) {
+            batch(() => {
+                allCards.value = cards;
+                refreshPage();
+            });
         } else {
-            newCount++;
-            const filtered = applyFilter(allCards, filterText);
-            const total    = totalPages(filtered, PAGE_SIZE);
-            if (controls) controls.innerHTML = renderControls(currentPage, total, newCount);
+            // Don't update the feed — user is reading a different page.
+            // Update allCards (so totalCount stays accurate) and badge newCount.
+            batch(() => {
+                allCards.value = cards;
+                newCount.value++;
+            });
         }
     });
 }
