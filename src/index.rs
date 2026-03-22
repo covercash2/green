@@ -19,7 +19,7 @@ pub struct Index {
 }
 
 impl Index {
-    pub async fn new(routes: Routes, has_notes: bool, has_mqtt: bool) -> Result<Self, Error> {
+    pub async fn new(routes: Routes, has_notes: bool, has_mqtt: bool, has_mqtt_devices: bool) -> Result<Self, Error> {
         let static_entries = [
             IndexEntry {
                 name: "breaker box".into(),
@@ -50,6 +50,12 @@ impl Index {
             description: "Live MQTT message feed".into(),
         });
 
+        let mqtt_devices_entry = has_mqtt_devices.then_some(IndexEntry {
+            name: "mqtt devices".into(),
+            href: "/mqtt/devices".into(),
+            description: "MQTT device inventory".into(),
+        });
+
         let mut routes: Vec<IndexEntry> = routes
             .into_iter()
             .map(|(name, info)| IndexEntry {
@@ -60,6 +66,7 @@ impl Index {
             .chain(static_entries)
             .chain(notes_entry)
             .chain(mqtt_entry)
+            .chain(mqtt_devices_entry)
             .collect();
 
         routes.sort_by(|a, b| a.name.cmp(&b.name));
@@ -90,7 +97,7 @@ mod tests {
 
     #[tokio::test]
     async fn index_without_notes_has_no_notes_entry() {
-        let index = Index::new(Routes::default(), false, false).await.unwrap();
+        let index = Index::new(Routes::default(), false, false, false).await.unwrap();
         assert!(
             !index.routes.iter().any(|r| r.href == "/notes"),
             "notes entry should be absent when has_notes=false"
@@ -99,7 +106,7 @@ mod tests {
 
     #[tokio::test]
     async fn index_with_notes_has_notes_entry() {
-        let index = Index::new(Routes::default(), true, false).await.unwrap();
+        let index = Index::new(Routes::default(), true, false, false).await.unwrap();
         assert!(
             index.routes.iter().any(|r| r.href == "/notes"),
             "notes entry should be present when has_notes=true"
@@ -108,17 +115,52 @@ mod tests {
 
     #[tokio::test]
     async fn index_always_has_static_entries() {
-        let index = Index::new(Routes::default(), false, false).await.unwrap();
+        let index = Index::new(Routes::default(), false, false, false).await.unwrap();
         assert!(index.routes.iter().any(|r| r.href == "/breaker"));
         assert!(index.routes.iter().any(|r| r.href == "/qr"));
     }
 
     #[tokio::test]
     async fn index_entries_sorted_alphabetically() {
-        let index = Index::new(Routes::default(), true, false).await.unwrap();
+        let index = Index::new(Routes::default(), true, false, false).await.unwrap();
         let names: Vec<&str> = index.routes.iter().map(|r| r.name.as_str()).collect();
         let mut sorted = names.clone();
         sorted.sort();
         assert_eq!(names, sorted, "index entries should be in alphabetical order");
+    }
+
+    #[tokio::test]
+    async fn index_without_mqtt_devices_has_no_devices_entry() {
+        let index = Index::new(Routes::default(), false, true, false).await.unwrap();
+        assert!(
+            !index.routes.iter().any(|r| r.href == "/mqtt/devices"),
+            "mqtt devices entry should be absent when has_mqtt_devices=false"
+        );
+    }
+
+    #[tokio::test]
+    async fn index_with_mqtt_devices_has_devices_entry() {
+        let index = Index::new(Routes::default(), false, true, true).await.unwrap();
+        assert!(
+            index.routes.iter().any(|r| r.href == "/mqtt/devices"),
+            "mqtt devices entry should be present when has_mqtt_devices=true"
+        );
+    }
+
+    #[tokio::test]
+    async fn index_mqtt_devices_entry_has_expected_fields() {
+        let index = Index::new(Routes::default(), false, true, true).await.unwrap();
+        let entry = index.routes.iter().find(|r| r.href == "/mqtt/devices").unwrap();
+        assert_eq!(entry.name, "mqtt devices");
+        assert!(!entry.description.is_empty());
+    }
+
+    #[tokio::test]
+    async fn index_mqtt_devices_sorted_adjacent_to_mqtt() {
+        let index = Index::new(Routes::default(), false, true, true).await.unwrap();
+        let names: Vec<&str> = index.routes.iter().map(|r| r.name.as_str()).collect();
+        let mqtt_pos = names.iter().position(|&n| n == "mqtt").unwrap();
+        let devices_pos = names.iter().position(|&n| n == "mqtt devices").unwrap();
+        assert_eq!(devices_pos, mqtt_pos + 1, "mqtt devices should immediately follow mqtt");
     }
 }

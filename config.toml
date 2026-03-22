@@ -32,6 +32,27 @@ description = "Frigate NVR for camera surveillance"
 url = "db.green.chrash.net"
 description = "PostgreSQL database server"
 
+[mqtt]
+host = "localhost"
+port = 1883
+# username = ""
+# password set via GREEN_MQTT_PASSWORD env var
+
+[[mqtt.integrations]]
+pattern = "zigbee2mqtt/{device}/**"
+
+[[mqtt.integrations]]
+pattern = "homeassistant/*/{device}/**"
+name = "Home Assistant"
+
+[[mqtt.integrations]]
+pattern = "frigate/{device}/**"
+name = "Frigate"
+
+[[mqtt.integrations]]
+pattern = "zwavejs/{device}/**"
+name = "Z-Wave"
+
 [routes.homeassistant]
 url = "homeassistant.green.chrash.net"
 description = "Home Assistant for home automation"

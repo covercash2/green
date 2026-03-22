@@ -16,6 +16,21 @@ port = 1883
 username = "green"
 # GREEN_MQTT_PASSWORD env var supplies the password at runtime
 
+[[mqtt.integrations]]
+pattern = "zigbee2mqtt/{device}/**"
+
+[[mqtt.integrations]]
+pattern = "homeassistant/*/{device}/**"
+name = "Home Assistant"
+
+[[mqtt.integrations]]
+pattern = "frigate/{device}/**"
+name = "Frigate"
+
+[[mqtt.integrations]]
+pattern = "zwavejs/{device}/**"
+name = "Z-Wave"
+
 [routes.foundry]
 url = "foundry.green.chrash.net"
 description = "Foundry VTT for D&D games"

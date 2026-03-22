@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# pre-push hook — runs full quality checks before every push.
+# Install with: just install-hooks
+set -euo pipefail
+
+echo "==> pre-push: running quality checks…"
+
+nix develop --command just _pre-push-checks
+
+echo "==> pre-push: all checks passed"

@@ -32,6 +32,12 @@
     text-decoration: underline;
 }
 
+.leet-page-nav {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 0.5rem;
+}
+
 /* --- Index page --- */
 
 .list-group {
@@ -774,6 +780,108 @@
     margin-top: 1rem;
 }
 
+/* --- Shared interactive button primitive ---
+   Transparent bg, dashed green border, hover → solid. Used by any small
+   monospace button across the app (pagination, topic chips, etc.).
+   Compose with a size modifier (.leet-btn-sm / .leet-btn-lg) as needed. */
+
+.leet-btn {
+    font-family: var(--font-mono);
+    font-size: 0.78rem;
+    background: transparent;
+    color: var(--color-fg-dim);
+    border: 1px dashed rgba(51, 255, 51, 0.3);
+    padding: 0.2rem 0.5rem;
+    cursor: pointer;
+    user-select: none;
+}
+
+.leet-btn:hover:not(:disabled) {
+    border-style: solid;
+    color: var(--color-fg);
+}
+
+.leet-btn:disabled {
+    opacity: 0.25;
+    cursor: default;
+}
+
+.leet-btn-active {
+    border-style: solid;
+    color: var(--color-accent);
+}
+
+/* --- Shared utility --- */
+
+.leet-muted {
+    opacity: 0.5;
+}
+
+.leet-badge-warn {
+    font-size: 0.72rem;
+    color: #e0af68;
+    text-shadow: 0 0 6px #e0af68;
+    margin-left: 0.4rem;
+    white-space: nowrap;
+}
+
+/* --- Generic table --- */
+
+.leet-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 1rem;
+    font-size: 0.9rem;
+}
+
+.leet-table th {
+    text-align: left;
+    padding: 0.35rem 0.6rem;
+    border-bottom: 1px solid var(--color-border);
+    color: var(--color-heading);
+    text-shadow: 0 0 6px var(--color-heading-glow);
+    white-space: nowrap;
+}
+
+.leet-table td {
+    padding: 0.3rem 0.6rem;
+    border-bottom: 1px solid rgba(51, 255, 51, 0.12);
+    vertical-align: middle;
+}
+
+.leet-table tr:last-child td {
+    border-bottom: none;
+}
+
+/* --- MQTT devices page --- */
+
+tr.device-row {
+    cursor: pointer;
+    transition: background 0.1s;
+}
+
+tr.device-row:hover {
+    background: rgba(0, 255, 0, 0.04);
+}
+
+tr.device-row[data-panel-open] {
+    background: rgba(125, 207, 255, 0.06);
+}
+
+.device-panel-row td {
+    padding: 0;
+    border-bottom: 1px solid var(--color-border);
+}
+
+.device-panel {
+    padding: 0.75rem 1rem;
+    max-height: 22rem;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
 /* --- MQTT live-feed page --- */
 
 .mqtt-status-bar {
@@ -804,6 +912,17 @@
 .mqtt-status-text {
     opacity: 0.65;
     font-size: 0.8rem;
+}
+
+.mqtt-topics {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.3rem;
+    margin-bottom: 0.6rem;
+}
+
+.mqtt-topics:empty {
+    display: none;
 }
 
 .mqtt-filter-bar {
@@ -857,8 +976,26 @@
     justify-content: space-between;
     align-items: baseline;
     gap: 0.5rem;
-    margin-bottom: 0.35rem;
+    margin-bottom: 0;
     min-width: 0;
+    cursor: pointer;
+    user-select: none;
+}
+
+.mqtt-msg-header::after {
+    content: '▸';
+    color: var(--color-fg);
+    opacity: 0.25;
+    font-size: 0.65rem;
+    flex-shrink: 0;
+}
+
+.mqtt-msg-expanded .mqtt-msg-header {
+    margin-bottom: 0.35rem;
+}
+
+.mqtt-msg-expanded .mqtt-msg-header::after {
+    content: '▾';
 }
 
 .mqtt-msg-topic {
@@ -877,6 +1014,16 @@
     font-size: 0.72rem;
     white-space: nowrap;
     flex-shrink: 0;
+}
+
+.mqtt-msg-body,
+.mqtt-msg-expand {
+    display: none;
+}
+
+.mqtt-msg-expanded .mqtt-msg-body,
+.mqtt-msg-expanded .mqtt-msg-expand {
+    display: block;
 }
 
 .mqtt-msg-body {
@@ -967,16 +1114,7 @@
 
 .mqtt-controls { display: flex; gap: 0.3rem; flex-wrap: wrap; margin-bottom: 0.75rem; }
 
-.mqtt-page-btn {
-    font-family: var(--font-mono); font-size: 0.78rem;
-    background: transparent; color: var(--color-fg-dim);
-    border: 1px dashed rgba(51,255,51,0.3); padding: 0.2rem 0.5rem;
-    cursor: pointer; user-select: none;
-}
-
-.mqtt-page-btn:hover:not(:disabled) { border-style: solid; color: var(--color-fg); }
-.mqtt-page-btn:disabled { opacity: 0.25; cursor: default; }
-.mqtt-page-active { border-style: solid; color: var(--color-accent); }
+/* .mqtt-page-btn and .mqtt-page-active compose with .leet-btn / .leet-btn-active */
 
 .mqtt-page-ellipsis {
     font-family: var(--font-mono); font-size: 0.78rem;
@@ -984,3 +1122,62 @@
 }
 
 .mqtt-page-new { color: var(--color-accent); font-size: 0.7rem; margin-left: 0.15rem; }
+
+/* --- Device command form (inside device panel) --- */
+
+.device-cmd-sep {
+    border: none;
+    border-top: 1px dashed rgba(51, 255, 51, 0.2);
+    margin: 0.6rem 0;
+}
+
+.device-cmd-form {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+}
+
+.device-cmd-fields {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+}
+
+.device-cmd-topic,
+.device-cmd-payload {
+    font-family: var(--font-mono);
+    font-size: 0.8rem;
+    background: var(--color-bg-item);
+    color: var(--color-fg);
+    border: 1px dashed rgba(51, 255, 51, 0.3);
+    padding: 0.35rem 0.55rem;
+    outline: none;
+    resize: vertical;
+    box-sizing: border-box;
+    width: 100%;
+}
+
+.device-cmd-topic:focus,
+.device-cmd-payload:focus {
+    border-style: solid;
+}
+
+.device-cmd-topic::placeholder,
+.device-cmd-payload::placeholder {
+    opacity: 0.3;
+}
+
+.device-cmd-payload {
+    min-height: 3.5rem;
+}
+
+.device-cmd-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.device-cmd-status {
+    font-size: 0.75rem;
+    opacity: 0.65;
+}

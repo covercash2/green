@@ -38,6 +38,7 @@ url = "2"
 time = "0.3"
 reqwest = { version = "0.12", features = ["json"] }
 rumqttc = "0.24"
+prometheus = "0.13"
 tower-http = { version = "0.6.6", features = ["fs", "trace", "tracing"] }
 tracing = "0.1.41"
 tracing-subscriber = { version = "0.3.19", features = [

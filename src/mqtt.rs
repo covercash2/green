@@ -13,14 +13,15 @@ use time::format_description::well_known::Rfc3339;
 
 use askama::Template;
 use axum::{
-    extract::State,
+    extract::{Query, State},
     response::{
         Html,
         sse::{Event, KeepAlive, Sse},
     },
+    Json,
 };
 use futures::StreamExt as _;
-use rumqttc::{AsyncClient, Event as MqttEvent, MqttOptions, Packet, QoS};
+use rumqttc::{AsyncClient, Event as MqttEvent, EventLoop, MqttOptions, Packet, QoS};
 use serde::{Deserialize, Serialize};
 use tokio::sync::broadcast;
 
@@ -29,6 +30,31 @@ use crate::{
     error::Error,
     ServerState,
 };
+
+// ─── Integration pattern types ───────────────────────────────────────────────
+
+/// Parsed segment of an integration topic pattern.
+#[derive(Debug)]
+pub(crate) enum PatternSegment {
+    /// Matches only the given literal string.
+    Literal(String),
+    /// Captures this segment as the device ID.
+    Capture,
+    /// Matches any single segment (no capture).
+    Any,
+    /// Matches zero or more remaining segments; terminates parsing.
+    Glob,
+}
+
+/// Per-integration device-tracking configuration.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct IntegrationConfig {
+    /// Topic pattern with `{device}`, `*`/`+` (any segment), and `**` (glob) tokens.
+    pub pattern: String,
+    /// Optional display name; defaults to the first literal segment of the pattern.
+    #[serde(default)]
+    pub name: Option<String>,
+}
 
 /// Configuration for the MQTT broker connection.
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -51,6 +77,9 @@ pub struct MqttConfig {
     /// Number of recent messages to replay to new SSE clients. Defaults to 200.
     #[serde(default = "default_scrollback")]
     pub scrollback: usize,
+    /// Integration configs for device tracking. Empty = no tracking.
+    #[serde(default)]
+    pub integrations: Vec<IntegrationConfig>,
 }
 
 fn default_host() -> String {
@@ -67,6 +96,111 @@ fn default_topics() -> Vec<String> {
 
 fn default_scrollback() -> usize {
     200
+}
+
+// ─── Internal integration representation ─────────────────────────────────────
+
+/// A parsed integration used for device extraction from MQTT topics.
+#[derive(Debug)]
+pub(crate) struct Integration {
+    /// Human-readable name for this integration (shown in the devices table).
+    display_name: String,
+    /// Original pattern string — stored in the DB to detect stale entries after config changes.
+    pattern: String,
+    segments: Vec<PatternSegment>,
+}
+
+/// Parse [`IntegrationConfig`] slices into [`Integration`] values ready for matching.
+pub(crate) fn parse_integrations(cfgs: &[IntegrationConfig]) -> Vec<Integration> {
+    cfgs.iter()
+        .map(|cfg| {
+            let segments: Vec<PatternSegment> = cfg
+                .pattern
+                .split('/')
+                .map(|seg| match seg {
+                    "{device}" => PatternSegment::Capture,
+                    "**" => PatternSegment::Glob,
+                    "*" | "+" => PatternSegment::Any,
+                    lit => PatternSegment::Literal(lit.to_string()),
+                })
+                .collect();
+
+            let display_name = cfg.name.clone().unwrap_or_else(|| {
+                segments
+                    .iter()
+                    .find_map(|s| {
+                        if let PatternSegment::Literal(l) = s {
+                            Some(l.clone())
+                        } else {
+                            None
+                        }
+                    })
+                    .unwrap_or_else(|| "unknown".to_string())
+            });
+
+            Integration { display_name, pattern: cfg.pattern.clone(), segments }
+        })
+        .collect()
+}
+
+/// Try to match `topic` against `segments`, returning the captured device ID.
+///
+/// Returns `None` if the pattern does not match or contains no `{device}` capture.
+fn match_topic<'a>(segments: &[PatternSegment], topic: &'a str) -> Option<&'a str> {
+    let topic_segs: Vec<&str> = topic.split('/').collect();
+    let mut device_id: Option<&str> = None;
+    let mut pi = 0usize;
+    let mut ti = 0usize;
+
+    while pi < segments.len() {
+        match &segments[pi] {
+            PatternSegment::Glob => {
+                // ** matches the remainder — consume all topic segs and stop.
+                ti = topic_segs.len();
+                break;
+            }
+            PatternSegment::Literal(l) => {
+                if ti >= topic_segs.len() || topic_segs[ti] != l {
+                    return None;
+                }
+                ti += 1;
+            }
+            PatternSegment::Capture => {
+                if ti >= topic_segs.len() {
+                    return None;
+                }
+                device_id = Some(topic_segs[ti]);
+                ti += 1;
+            }
+            PatternSegment::Any => {
+                if ti >= topic_segs.len() {
+                    return None;
+                }
+                ti += 1;
+            }
+        }
+        pi += 1;
+    }
+
+    // All pattern segments consumed — topic must also be fully consumed.
+    if ti != topic_segs.len() {
+        return None;
+    }
+
+    device_id
+}
+
+/// Try each integration in order; return the first `(integration, device_id)` match.
+fn match_integrations<'i, 't>(
+    integrations: &'i [Integration],
+    topic: &'t str,
+) -> Option<(&'i Integration, &'t str)> {
+    for integration in integrations {
+        if let Some(device_id) = match_topic(&integration.segments, topic) {
+            return Some((integration, device_id));
+        }
+    }
+    None
 }
 
 /// A single MQTT publish received from the broker.
@@ -89,6 +223,20 @@ pub enum BrokerEvent {
     Status { status: String },
 }
 
+/// Prometheus registry and counter for MQTT device messages.
+pub struct PrometheusState {
+    /// Prometheus scrape registry (not the global default).
+    pub registry: prometheus::Registry,
+    /// `mqtt_messages_total{integration, device}` counter.
+    pub messages_total: prometheus::IntCounterVec,
+}
+
+impl std::fmt::Debug for PrometheusState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PrometheusState").finish_non_exhaustive()
+    }
+}
+
 /// Shared MQTT fan-out state stored in [`ServerState`].
 #[derive(Debug)]
 pub struct MqttState {
@@ -99,6 +247,12 @@ pub struct MqttState {
     pub last_status: Arc<RwLock<String>>,
     /// Ring buffer of recent messages replayed to new SSE clients on connect.
     pub recent_messages: Arc<RwLock<VecDeque<MqttMessage>>>,
+    /// Prometheus metrics, present only when integrations are configured.
+    pub prometheus: Option<PrometheusState>,
+    /// Parsed integrations, shared with the device tracker task and message filter handler.
+    pub(crate) integrations: Arc<Vec<Integration>>,
+    /// Cloned client handle used for publishing outbound messages (e.g. device commands).
+    pub publish_client: AsyncClient,
 }
 
 /// Abstraction over the MQTT client's subscribe call, injected into
@@ -179,13 +333,10 @@ fn handle_error(
     let _ = tx.send(BrokerEvent::Status { status: "error".into() });
 }
 
-/// Spawn the MQTT subscriber task. Runs forever, reconnecting automatically.
-pub async fn run_mqtt_task(
-    config: MqttConfig,
-    tx: broadcast::Sender<BrokerEvent>,
-    last_status: Arc<RwLock<String>>,
-    recent_messages: Arc<RwLock<VecDeque<MqttMessage>>>,
-) {
+/// Create and configure an MQTT client from config without connecting.
+/// The returned `AsyncClient` can be cloned for publishing; pass the `EventLoop`
+/// to [`run_mqtt_task`] to drive the connection.
+pub fn setup_mqtt_client(config: &MqttConfig) -> (AsyncClient, EventLoop) {
     let mut opts = MqttOptions::new("green-mqtt", &config.host, config.port);
     let _ = opts.set_keep_alive(Duration::from_secs(30));
     // Some topics (e.g. Frigate snapshots, zigbee2mqtt device lists) send large
@@ -194,9 +345,18 @@ pub async fn run_mqtt_task(
     if let (Some(user), Some(pass)) = (config.username.as_deref(), config.password.as_deref()) {
         let _ = opts.set_credentials(user, pass);
     }
+    AsyncClient::new(opts, 64)
+}
 
-    let (client, mut eventloop) = AsyncClient::new(opts, 64);
-
+/// Spawn the MQTT subscriber task. Runs forever, reconnecting automatically.
+pub async fn run_mqtt_task(
+    config: MqttConfig,
+    client: AsyncClient,
+    mut eventloop: EventLoop,
+    tx: broadcast::Sender<BrokerEvent>,
+    last_status: Arc<RwLock<String>>,
+    recent_messages: Arc<RwLock<VecDeque<MqttMessage>>>,
+) {
     loop {
         match eventloop.poll().await {
             Ok(MqttEvent::Incoming(Packet::Publish(publish))) => {
@@ -214,6 +374,108 @@ pub async fn run_mqtt_task(
     }
 }
 
+// ─── Device tracker task ─────────────────────────────────────────────────────
+
+/// A row returned from `mqtt_devices` for display in the devices page.
+pub struct DeviceRow {
+    /// Integration display name.
+    pub integration: String,
+    /// Device identifier as seen in the topic.
+    pub device_id: String,
+    /// ISO 8601 timestamp of the first message from this device.
+    pub first_seen: String,
+    /// ISO 8601 timestamp of the most recent message from this device.
+    pub last_seen: String,
+    /// Total number of messages seen from this device.
+    pub message_count: i64,
+}
+
+/// Background task: listen for MQTT messages, extract device IDs, persist to DB, and
+/// increment the Prometheus counter.
+///
+/// On startup, purges any rows whose stored pattern no longer matches the current config
+/// so that pattern changes are automatically reflected without manual DB cleanup.
+pub async fn run_device_tracker_task(
+    integrations: Arc<Vec<Integration>>,
+    db: sqlx::PgPool,
+    metrics: Option<prometheus::IntCounterVec>,
+    mut rx: broadcast::Receiver<BrokerEvent>,
+) {
+    // Purge stale rows for each integration before processing live messages.
+    for integration in integrations.as_ref() {
+        cleanup_stale_pattern(&db, &integration.display_name, &integration.pattern).await;
+    }
+
+    loop {
+        match rx.recv().await {
+            Ok(BrokerEvent::Message(ref msg)) => {
+                if let Some((integration, device_id)) =
+                    match_integrations(&integrations, &msg.topic)
+                {
+                    upsert_device(&db, &integration.display_name, &integration.pattern, device_id).await;
+                    if let Some(ref counter) = metrics {
+                        counter.with_label_values(&[&integration.display_name, device_id]).inc();
+                    }
+                }
+            }
+            Ok(BrokerEvent::Status { .. }) => {}
+            Err(broadcast::error::RecvError::Lagged(n)) => {
+                tracing::warn!(n, "device tracker lagged, skipping messages");
+            }
+            Err(broadcast::error::RecvError::Closed) => {
+                tracing::warn!("device tracker broadcast channel closed, task exiting");
+                break;
+            }
+        }
+    }
+}
+
+/// Delete rows for `integration` whose pattern no longer matches the current config.
+/// Called once at tracker startup so pattern changes self-heal on restart.
+async fn cleanup_stale_pattern(db: &sqlx::PgPool, integration: &str, pattern: &str) {
+    let result = sqlx::query(
+        "DELETE FROM mqtt_devices WHERE integration = $1 AND pattern != $2",
+    )
+    .bind(integration)
+    .bind(pattern)
+    .execute(db)
+    .await;
+
+    match result {
+        Ok(r) if r.rows_affected() > 0 => {
+            tracing::info!(
+                integration,
+                pattern,
+                rows = r.rows_affected(),
+                "purged stale mqtt_devices rows after pattern change"
+            );
+        }
+        Ok(_) => {}
+        Err(err) => {
+            tracing::warn!(%err, integration, "failed to purge stale mqtt_devices rows");
+        }
+    }
+}
+
+async fn upsert_device(db: &sqlx::PgPool, integration: &str, pattern: &str, device_id: &str) {
+    let result = sqlx::query(
+        "INSERT INTO mqtt_devices (integration, pattern, device_id)
+         VALUES ($1, $2, $3)
+         ON CONFLICT (integration, pattern, device_id)
+         DO UPDATE SET last_seen = NOW(),
+                       message_count = mqtt_devices.message_count + 1",
+    )
+    .bind(integration)
+    .bind(pattern)
+    .bind(device_id)
+    .execute(db)
+    .await;
+
+    if let Err(err) = result {
+        tracing::warn!(%err, integration, device_id, "failed to upsert mqtt device");
+    }
+}
+
 /// Returns the current UTC time formatted as RFC 3339 (e.g. `2026-03-15T12:00:00Z`).
 fn utc_now() -> String {
     time::OffsetDateTime::now_utc()
@@ -224,6 +486,163 @@ fn utc_now() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ── parse_integrations / match_topic / match_integrations ─────────────────
+
+    fn parsed(pattern: &str) -> Vec<PatternSegment> {
+        parse_integrations(&[IntegrationConfig { pattern: pattern.to_string(), name: None }])
+            .into_iter()
+            .next()
+            .unwrap()
+            .segments
+    }
+
+    #[test]
+    fn zigbee_pattern_captures_device() {
+        let segs = parsed("zigbee2mqtt/{device}/**");
+        assert_eq!(
+            match_topic(&segs, "zigbee2mqtt/0x1234/some/state"),
+            Some("0x1234")
+        );
+    }
+
+    #[test]
+    fn zigbee_pattern_no_match_different_prefix() {
+        let segs = parsed("zigbee2mqtt/{device}/**");
+        assert_eq!(match_topic(&segs, "other/0x1234"), None);
+    }
+
+    #[test]
+    fn homeassistant_pattern_captures_device() {
+        let segs = parsed("homeassistant/*/{device}/**");
+        assert_eq!(
+            match_topic(&segs, "homeassistant/light/my_dev/state"),
+            Some("my_dev")
+        );
+    }
+
+    #[test]
+    fn no_device_segment_returns_none() {
+        let segs = parsed("some/literal/path");
+        assert_eq!(match_topic(&segs, "some/literal/path"), None);
+    }
+
+    #[test]
+    fn pattern_shorter_than_topic_without_glob_returns_none() {
+        let segs = parsed("a/b");
+        assert_eq!(match_topic(&segs, "a/b/c"), None);
+    }
+
+    #[test]
+    fn topic_shorter_than_pattern_returns_none() {
+        let segs = parsed("a/{device}/c");
+        assert_eq!(match_topic(&segs, "a/dev"), None);
+    }
+
+    #[test]
+    fn glob_matches_zero_remaining_segments() {
+        // ** at end — topic ends right at the device segment (no trailing segments)
+        let segs = parsed("prefix/{device}/**");
+        assert_eq!(match_topic(&segs, "prefix/dev"), Some("dev"));
+    }
+
+    #[test]
+    fn match_integrations_returns_first_match_with_name() {
+        let cfgs = vec![
+            IntegrationConfig { pattern: "other/#".to_string(), name: None },
+            IntegrationConfig {
+                pattern: "z2m/{device}/**".to_string(),
+                name: Some("Zigbee".to_string()),
+            },
+        ];
+        let integrations = parse_integrations(&cfgs);
+        let result = match_integrations(&integrations, "z2m/abc/state");
+        assert!(result.is_some());
+        let (integration, device) = result.unwrap();
+        assert_eq!(integration.display_name, "Zigbee");
+        assert_eq!(device, "abc");
+    }
+
+    #[test]
+    fn match_integrations_no_match_returns_none() {
+        let cfgs = vec![IntegrationConfig {
+            pattern: "zigbee2mqtt/{device}/**".to_string(),
+            name: None,
+        }];
+        let integrations = parse_integrations(&cfgs);
+        assert!(match_integrations(&integrations, "homeassistant/sensor/state").is_none());
+    }
+
+    #[test]
+    fn integration_stores_original_pattern() {
+        let cfgs = vec![IntegrationConfig {
+            pattern: "zigbee2mqtt/{device}/**".to_string(),
+            name: None,
+        }];
+        let integrations = parse_integrations(&cfgs);
+        assert_eq!(integrations[0].pattern, "zigbee2mqtt/{device}/**");
+    }
+
+    #[test]
+    fn match_integrations_returns_integration_with_pattern() {
+        let cfgs = vec![IntegrationConfig {
+            pattern: "z2m/{device}/**".to_string(),
+            name: Some("Zigbee".to_string()),
+        }];
+        let integrations = parse_integrations(&cfgs);
+        let (integration, _device) =
+            match_integrations(&integrations, "z2m/bulb/state").unwrap();
+        assert_eq!(integration.pattern, "z2m/{device}/**");
+    }
+
+    #[test]
+    fn integration_display_name_defaults_to_first_literal() {
+        let cfgs = vec![IntegrationConfig {
+            pattern: "mybridge/{device}/**".to_string(),
+            name: None,
+        }];
+        let integrations = parse_integrations(&cfgs);
+        assert_eq!(integrations[0].display_name, "mybridge");
+    }
+
+    #[test]
+    fn integration_display_name_falls_back_to_unknown_when_no_literals() {
+        let cfgs = vec![IntegrationConfig {
+            pattern: "{device}/**".to_string(),
+            name: None,
+        }];
+        let integrations = parse_integrations(&cfgs);
+        assert_eq!(integrations[0].display_name, "unknown");
+    }
+
+    #[test]
+    fn raw_zigbee_address_starts_with_0x() {
+        // The template flags device_ids starting with "0x" as unnamed.
+        // Verify the condition matches typical zigbee hardware addresses.
+        assert!("0x00158d0001234567".starts_with("0x"));
+        assert!(!"living_room_lamp".starts_with("0x"));
+        assert!(!"0".starts_with("0x")); // bare zero is not a hex address
+    }
+
+    #[test]
+    fn mqtt_config_integrations_defaults_to_empty() {
+        let cfg: MqttConfig = toml::from_str("").unwrap();
+        assert!(cfg.integrations.is_empty());
+    }
+
+    #[test]
+    fn mqtt_config_integrations_parses() {
+        let cfg: MqttConfig = toml::from_str(
+            r#"[[integrations]]
+               pattern = "zigbee2mqtt/{device}/**"
+               name = "Zigbee"
+            "#,
+        )
+        .unwrap();
+        assert_eq!(cfg.integrations.len(), 1);
+        assert_eq!(cfg.integrations[0].pattern, "zigbee2mqtt/{device}/**");
+        assert_eq!(cfg.integrations[0].name.as_deref(), Some("Zigbee"));
+    }
 
     // ── MqttConfig defaults ───────────────────────────────────────────────────
 
@@ -489,6 +908,415 @@ mod tests {
         assert_eq!(events.len(), 1);
         assert!(matches!(&events[0], BrokerEvent::Status { status } if status == "connecting"));
     }
+
+    // ── html_escape ───────────────────────────────────────────────────────────
+
+    #[test]
+    fn html_escape_ampersand() {
+        assert_eq!(html_escape("a&b"), "a&amp;b");
+    }
+
+    #[test]
+    fn html_escape_lt_gt() {
+        assert_eq!(html_escape("<tag>"), "&lt;tag&gt;");
+    }
+
+    #[test]
+    fn html_escape_quote() {
+        assert_eq!(html_escape(r#"say "hi""#), "say &quot;hi&quot;");
+    }
+
+    #[test]
+    fn html_escape_no_special_chars_unchanged() {
+        assert_eq!(html_escape("hello world"), "hello world");
+    }
+
+    #[test]
+    fn html_escape_all_specials() {
+        assert_eq!(html_escape(r#"<a href="x&y">z</a>"#), "&lt;a href=&quot;x&amp;y&quot;&gt;z&lt;/a&gt;");
+    }
+
+    // ── truncate_at_char ──────────────────────────────────────────────────────
+
+    #[test]
+    fn truncate_at_char_ascii_within_limit() {
+        assert_eq!(truncate_at_char("hello", 10), "hello");
+    }
+
+    #[test]
+    fn truncate_at_char_ascii_at_limit() {
+        assert_eq!(truncate_at_char("hello", 5), "hello");
+    }
+
+    #[test]
+    fn truncate_at_char_ascii_over_limit() {
+        assert_eq!(truncate_at_char("hello world", 5), "hello");
+    }
+
+    #[test]
+    fn truncate_at_char_unicode_over_limit() {
+        // "héllo" is 5 chars but 6 bytes; truncate at 3 chars → "hél"
+        assert_eq!(truncate_at_char("héllo", 3), "hél");
+    }
+
+    #[test]
+    fn truncate_at_char_empty_string() {
+        assert_eq!(truncate_at_char("", 5), "");
+    }
+
+    // ── format_time ───────────────────────────────────────────────────────────
+
+    #[test]
+    fn format_time_extracts_hhmmsss() {
+        assert_eq!(format_time("2026-03-17T23:15:24Z"), "23:15:24");
+    }
+
+    #[test]
+    fn format_time_fallback_on_non_iso() {
+        assert_eq!(format_time("not-a-date"), "not-a-date");
+    }
+
+    #[test]
+    fn format_time_fallback_when_t_near_end() {
+        // "T" exists but not enough chars after it
+        assert_eq!(format_time("20260317T23"), "20260317T23");
+    }
+
+    // ── format_entry_value ────────────────────────────────────────────────────
+
+    #[test]
+    fn format_entry_value_null() {
+        assert_eq!(format_entry_value(&serde_json::Value::Null), "null");
+    }
+
+    #[test]
+    fn format_entry_value_bool_true() {
+        assert_eq!(format_entry_value(&serde_json::Value::Bool(true)), "true");
+    }
+
+    #[test]
+    fn format_entry_value_number() {
+        assert_eq!(format_entry_value(&serde_json::json!(42)), "42");
+    }
+
+    #[test]
+    fn format_entry_value_string() {
+        assert_eq!(format_entry_value(&serde_json::json!("hello")), "hello");
+    }
+
+    #[test]
+    fn format_entry_value_object_serialized() {
+        let v = serde_json::json!({"a": 1});
+        let s = format_entry_value(&v);
+        assert!(s.contains("\"a\""));
+    }
+
+    // ── render_payload_body ───────────────────────────────────────────────────
+
+    #[test]
+    fn render_payload_body_json_object_produces_dl() {
+        let html = render_payload_body(r#"{"state":"ON","brightness":200}"#);
+        assert!(html.contains("mqtt-msg-kv"), "should produce kv grid");
+        assert!(html.contains("state"), "key present");
+        assert!(html.contains("ON"), "value present");
+    }
+
+    #[test]
+    fn render_payload_body_plain_text_produces_pre() {
+        let html = render_payload_body("21.5");
+        assert!(html.contains("<pre"), "plain text gets pre tag");
+        assert!(html.contains("21.5"));
+    }
+
+    #[test]
+    fn render_payload_body_plain_text_is_escaped() {
+        let html = render_payload_body("<b>bold</b>");
+        assert!(html.contains("&lt;b&gt;"), "HTML is escaped");
+    }
+
+    #[test]
+    fn render_payload_body_long_plain_text_uses_details() {
+        let long = "x".repeat(TRUNCATE_LIMIT + 1);
+        let html = render_payload_body(&long);
+        assert!(html.contains("<details"), "long payload uses details element");
+    }
+
+    #[test]
+    fn render_payload_body_json_array_treated_as_non_object() {
+        let html = render_payload_body("[1,2,3]");
+        assert!(!html.contains("mqtt-msg-kv"), "array should not produce kv grid");
+    }
+
+    // ── render_message_card ───────────────────────────────────────────────────
+
+    #[test]
+    fn render_message_card_contains_topic() {
+        let msg = MqttMessage { topic: "home/temp".to_owned(), payload: "21.5".to_owned(), received_at: "2026-01-01T12:00:00Z".to_owned() };
+        let html = render_message_card(&msg);
+        assert!(html.contains("home/temp"));
+        assert!(html.contains("mqtt-msg"));
+    }
+
+    #[test]
+    fn render_message_card_topic_is_escaped() {
+        let msg = MqttMessage { topic: "home/<test>".to_owned(), payload: "".to_owned(), received_at: "2026-01-01T00:00:00Z".to_owned() };
+        let html = render_message_card(&msg);
+        assert!(html.contains("&lt;test&gt;"), "topic is HTML-escaped");
+    }
+
+    #[test]
+    fn render_message_card_includes_time() {
+        let msg = MqttMessage { topic: "t".to_owned(), payload: "p".to_owned(), received_at: "2026-03-17T23:15:24Z".to_owned() };
+        let html = render_message_card(&msg);
+        assert!(html.contains("23:15:24"), "formatted time present");
+    }
+
+    // ── render_status_html ────────────────────────────────────────────────────
+
+    #[test]
+    fn render_status_html_connected() {
+        let html = render_status_html("connected");
+        assert!(html.contains("mqtt-dot-connected"));
+        assert!(html.contains("connected"));
+    }
+
+    #[test]
+    fn render_status_html_escapes_special_chars() {
+        let html = render_status_html("err<or>");
+        assert!(html.contains("err&lt;or&gt;"));
+    }
+
+    // ── publish_route / device_messages_route handler tests ───────────────────
+
+    use crate::{
+        auth::{AuthConfig, AuthState, Role, SessionData},
+        breaker::BreakerContent,
+        breaker_detail::{BreakerData, BreakerStore},
+        index::Index,
+        route::Routes,
+    };
+    use axum::{
+        body::Body,
+        http::{Request, StatusCode},
+        routing::{get, post},
+        Router,
+    };
+    use std::{collections::HashMap, path::Path, time::Instant};
+    use tower::ServiceExt;
+    use uuid::Uuid;
+
+    async fn state_with_mqtt() -> ServerState {
+        let auth_state = AuthState::new_for_testing(AuthConfig {
+            rp_id: "localhost".to_string(),
+            rp_origin: "http://localhost".to_string(),
+            db_url: "postgres://localhost/nonexistent".to_string(),
+            gm_users: vec!["gm".to_string()],
+            ntfy_url: None,
+        })
+        .unwrap();
+
+        let (tx, _) = broadcast::channel(16);
+        let (publish_client, eventloop) =
+            AsyncClient::new(MqttOptions::new("green-test", "localhost", 1883), 64);
+        // Hold the EventLoop alive in a spawned task so the internal channel
+        // stays open, allowing publish() to enqueue without error.
+        let _ = tokio::spawn(async move {
+            let _hold = eventloop;
+            std::future::pending::<()>().await
+        });
+        let integrations = parse_integrations(&[IntegrationConfig {
+            pattern: "zigbee2mqtt/{device}/**".to_string(),
+            name: None,
+        }]);
+        let mqtt_state = Arc::new(MqttState {
+            tx,
+            last_status: Arc::new(RwLock::new("connecting".to_string())),
+            recent_messages: Arc::new(RwLock::new(VecDeque::new())),
+            prometheus: None,
+            integrations: Arc::new(integrations),
+            publish_client,
+        });
+
+        let store = Arc::new(
+            BreakerStore::from_data(BreakerData {
+                todos: vec![],
+                slots: HashMap::new(),
+                couples: vec![],
+            })
+            .unwrap(),
+        );
+        let breaker_content = Arc::new(BreakerContent::new(store.as_ref()));
+        ServerState {
+            certificate: Arc::from(""),
+            breaker_content,
+            breaker_detail_store: store,
+            index: Index::new(Routes::default(), false, false, false).await.unwrap(),
+            tailscale_socket: Arc::from(Path::new("/tmp/fake.sock")),
+            notes_store: None,
+            auth_state: Some(Arc::new(auth_state)),
+            mqtt_state: Some(mqtt_state),
+        }
+    }
+
+    async fn insert_gm_session(state: &ServerState) -> String {
+        let auth = state.auth_state.as_ref().unwrap();
+        let token = Uuid::new_v4().to_string();
+        let _ = auth.session_store.write().await.insert(
+            token.clone(),
+            SessionData {
+                user_id: Uuid::new_v4(),
+                username: "gm".to_string(),
+                role: Role::Gm,
+                created_at: Instant::now(),
+            },
+        );
+        token
+    }
+
+    #[test]
+    fn publish_request_deserializes_from_json() {
+        let json = r#"{"topic":"zigbee2mqtt/bulb/set","payload":"{\"state\":\"ON\"}"}"#;
+        let req: MqttPublishRequest = serde_json::from_str(json).unwrap();
+        assert_eq!(req.topic, "zigbee2mqtt/bulb/set");
+        assert!(req.payload.contains("ON"));
+    }
+
+    #[tokio::test]
+    async fn publish_route_returns_204_for_gm() {
+        let state = state_with_mqtt().await;
+        let token = insert_gm_session(&state).await;
+        let app = Router::new()
+            .route("/api/mqtt/publish", post(publish_route))
+            .with_state(state);
+        let req = Request::builder()
+            .method("POST")
+            .uri("/api/mqtt/publish")
+            .header("content-type", "application/json")
+            .header("cookie", format!("green_session={token}"))
+            .body(Body::from(
+                r#"{"topic":"test/bulb/set","payload":"{\"state\":\"ON\"}"}"#,
+            ))
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::NO_CONTENT);
+    }
+
+    #[tokio::test]
+    async fn device_messages_route_includes_cmd_form() {
+        let state = state_with_mqtt().await;
+        let token = insert_gm_session(&state).await;
+        let app = Router::new()
+            .route("/api/mqtt/device-messages", get(device_messages_route))
+            .with_state(state);
+        let req = Request::builder()
+            .method("GET")
+            .uri("/api/mqtt/device-messages?integration=zigbee2mqtt&device=0xABCD")
+            .header("cookie", format!("green_session={token}"))
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let bytes = axum::body::to_bytes(resp.into_body(), 1 << 20).await.unwrap();
+        let html = std::str::from_utf8(&bytes).unwrap();
+        assert!(html.contains("device-cmd-form"), "panel should include the command form");
+        assert!(
+            html.contains("no recent messages") || html.contains("leet-muted"),
+            "empty buffer should show muted message"
+        );
+    }
+
+    #[tokio::test]
+    async fn mqtt_page_route_returns_html_for_gm() {
+        let state = state_with_mqtt().await;
+        let token = insert_gm_session(&state).await;
+        let app = Router::new()
+            .route("/mqtt", get(mqtt_page_route))
+            .with_state(state);
+        let req = Request::builder()
+            .uri("/mqtt")
+            .header("cookie", format!("green_session={token}"))
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let bytes = axum::body::to_bytes(resp.into_body(), 1 << 20).await.unwrap();
+        let html = std::str::from_utf8(&bytes).unwrap();
+        assert!(html.contains("mqtt"), "page contains mqtt content");
+    }
+
+    #[tokio::test]
+    async fn mqtt_stream_route_returns_sse_for_gm() {
+        let state = state_with_mqtt().await;
+        let token = insert_gm_session(&state).await;
+        let app = Router::new()
+            .route("/api/mqtt/stream", get(mqtt_stream_route))
+            .with_state(state);
+        let req = Request::builder()
+            .uri("/api/mqtt/stream")
+            .header("cookie", format!("green_session={token}"))
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let ct = resp.headers().get("content-type").unwrap().to_str().unwrap();
+        assert!(ct.contains("text/event-stream"), "SSE content-type");
+    }
+
+    #[tokio::test]
+    async fn metrics_route_returns_text_plain_with_prometheus() {
+        // Build a state with Prometheus configured.
+        let (tx, _) = broadcast::channel(16);
+        let (publish_client, eventloop) =
+            AsyncClient::new(MqttOptions::new("green-test-metrics", "localhost", 1883), 64);
+        let _ = tokio::spawn(async move {
+            let _hold = eventloop;
+            std::future::pending::<()>().await
+        });
+        let registry = prometheus::Registry::new();
+        let messages_total = prometheus::IntCounterVec::new(
+            prometheus::opts!("mqtt_messages_total", "test"),
+            &["integration", "device"],
+        )
+        .unwrap();
+        let _ = registry.register(Box::new(messages_total.clone()));
+        messages_total.with_label_values(&["zigbee2mqtt", "0xABCD"]).inc();
+        let mqtt_state = Arc::new(MqttState {
+            tx,
+            last_status: Arc::new(RwLock::new("connecting".to_string())),
+            recent_messages: Arc::new(RwLock::new(VecDeque::new())),
+            prometheus: Some(PrometheusState { registry, messages_total }),
+            integrations: Arc::new(vec![]),
+            publish_client,
+        });
+        let store = Arc::new(
+            BreakerStore::from_data(BreakerData { todos: vec![], slots: HashMap::new(), couples: vec![] })
+                .unwrap(),
+        );
+        let state = ServerState {
+            certificate: Arc::from(""),
+            breaker_content: Arc::new(BreakerContent::new(store.as_ref())),
+            breaker_detail_store: store,
+            index: Index::new(Routes::default(), false, false, false).await.unwrap(),
+            tailscale_socket: Arc::from(Path::new("/tmp/fake.sock")),
+            notes_store: None,
+            auth_state: None,
+            mqtt_state: Some(mqtt_state),
+        };
+        let app = Router::new()
+            .route("/metrics", get(metrics_route))
+            .with_state(state);
+        let req = Request::builder()
+            .uri("/metrics")
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let ct = resp.headers().get("content-type").unwrap().to_str().unwrap();
+        assert!(ct.contains("text/plain"), "metrics uses text/plain");
+        let bytes = axum::body::to_bytes(resp.into_body(), 1 << 20).await.unwrap();
+        let body = std::str::from_utf8(&bytes).unwrap();
+        assert!(body.contains("mqtt_messages_total"), "prometheus metric present");
+    }
 }
 
 #[derive(Template)]
@@ -626,11 +1454,12 @@ fn render_payload_body(raw: &str) -> String {
 
 /// Render an MQTT message as an HTML card fragment for SSE delivery.
 fn render_message_card(msg: &MqttMessage) -> String {
-    let time = format_time(&msg.received_at);
     let topic_esc = html_escape(&msg.topic);
     let body = render_payload_body(&msg.payload);
+    let time = format_time(&msg.received_at);
     format!(
-        r#"<div class="mqtt-msg mqtt-msg-new" data-topic="{topic_esc}"><div class="mqtt-msg-header"><span class="mqtt-msg-topic" title="{topic_esc}">{topic_esc}</span><span class="mqtt-msg-time">{time}</span></div>{body}</div>"#
+        r#"<div class="mqtt-msg mqtt-msg-new" data-topic="{topic_esc}" data-received-at="{received_at}"><div class="mqtt-msg-header"><span class="mqtt-msg-topic" title="{topic_esc}">{topic_esc}</span><span class="mqtt-msg-time">{time}</span></div>{body}</div>"#,
+        received_at = msg.received_at,
     )
 }
 
@@ -682,4 +1511,160 @@ pub async fn mqtt_stream_route(
         .collect();
 
     Ok(Sse::new(build_sse_stream(current_status, backlog, rx)).keep_alive(KeepAlive::default()))
+}
+
+// ─── Publish endpoint ────────────────────────────────────────────────────────
+
+/// Request body for `POST /api/mqtt/publish`.
+#[derive(Debug, Deserialize)]
+pub struct MqttPublishRequest {
+    /// Full MQTT topic to publish to.
+    pub topic: String,
+    /// Payload string (typically JSON for smart-home integrations).
+    pub payload: String,
+}
+
+/// POST `/api/mqtt/publish` — publish a message to the broker (GM only).
+pub async fn publish_route(
+    _user: GmUser,
+    State(state): State<ServerState>,
+    Json(req): Json<MqttPublishRequest>,
+) -> Result<axum::http::StatusCode, Error> {
+    let mqtt = state.mqtt_state.as_ref().ok_or(Error::MqttNotConfigured)?;
+    mqtt.publish_client
+        .publish(&req.topic, QoS::AtLeastOnce, false, req.payload.as_bytes().to_vec())
+        .await
+        .map_err(|e| Error::Database(format!("mqtt publish: {e}")))?;
+    tracing::info!(topic = %req.topic, "published mqtt message");
+    Ok(axum::http::StatusCode::NO_CONTENT)
+}
+
+// ─── Device messages panel ───────────────────────────────────────────────────
+
+/// Query parameters for the device messages endpoint.
+#[derive(Debug, Deserialize)]
+pub struct DeviceMessagesQuery {
+    /// Integration display name (must match a configured integration).
+    pub integration: String,
+    /// Device ID to filter messages for.
+    pub device: String,
+}
+
+/// GET `/api/mqtt/device-messages` — returns recent ring-buffer messages for one device
+/// as pre-rendered HTML card fragments (GM only; no DB required).
+pub async fn device_messages_route(
+    _user: GmUser,
+    State(state): State<ServerState>,
+    Query(params): Query<DeviceMessagesQuery>,
+) -> Result<Html<String>, Error> {
+    let mqtt = state.mqtt_state.as_ref().ok_or(Error::MqttNotConfigured)?;
+
+    let integration = mqtt
+        .integrations
+        .iter()
+        .find(|i| i.display_name == params.integration)
+        .ok_or(Error::NotFound)?;
+
+    let messages: Vec<MqttMessage> = mqtt
+        .recent_messages
+        .read()
+        .expect("recent_messages poisoned")
+        .iter()
+        .filter(|msg| {
+            match_topic(&integration.segments, &msg.topic).as_deref()
+                == Some(params.device.as_str())
+        })
+        .cloned()
+        .collect();
+
+    let messages_html: String = if messages.is_empty() {
+        r#"<p class="leet-muted">no recent messages in buffer</p>"#.to_owned()
+    } else {
+        messages.iter().map(render_message_card).collect()
+    };
+
+    let form_html = r#"<form class="device-cmd-form">
+<div class="device-cmd-fields">
+<input class="device-cmd-topic" name="topic" type="text" placeholder="topic  e.g. zigbee2mqtt/device/set" autocomplete="off" spellcheck="false">
+<textarea class="device-cmd-payload" name="payload" rows="2" placeholder='payload  e.g. {"state":"ON","brightness":200}'></textarea>
+</div>
+<div class="device-cmd-actions">
+<button class="leet-btn" type="submit">send</button>
+<span class="device-cmd-status"></span>
+</div>
+</form>"#;
+
+    Ok(Html(format!(
+        r#"{messages_html}<hr class="device-cmd-sep">{form_html}"#
+    )))
+}
+
+// ─── Devices page ─────────────────────────────────────────────────────────────
+
+#[derive(Template)]
+#[template(path = "mqtt_devices.html")]
+struct MqttDevicesPage {
+    devices: Vec<DeviceRow>,
+    auth_user: Option<AuthUserInfo>,
+    version: &'static str,
+}
+
+/// GET `/mqtt/devices` — MQTT device inventory table (GM only).
+pub async fn mqtt_devices_route(
+    user: GmUser,
+    State(state): State<ServerState>,
+) -> Result<Html<String>, Error> {
+    let auth = state.auth_state.as_ref().ok_or(Error::MqttNotConfigured)?;
+    let auth_user = Some(AuthUserInfo {
+        username: user.0.username.clone(),
+        role: user.0.role.clone(),
+    });
+
+    let rows = sqlx::query(
+        "SELECT integration, device_id,
+                to_char(first_seen AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS') AS first_seen,
+                to_char(last_seen  AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS') AS last_seen,
+                message_count
+         FROM mqtt_devices
+         ORDER BY integration, device_id",
+    )
+    .fetch_all(&auth.db)
+    .await
+    .map_err(|e| Error::Database(e.to_string()))?;
+
+    let devices: Vec<DeviceRow> = rows
+        .into_iter()
+        .map(|row| {
+            use sqlx::Row as _;
+            DeviceRow {
+                integration: row.get("integration"),
+                device_id: row.get("device_id"),
+                first_seen: row.get("first_seen"),
+                last_seen: row.get("last_seen"),
+                message_count: row.get("message_count"),
+            }
+        })
+        .collect();
+
+    let page = MqttDevicesPage { devices, auth_user, version: crate::VERSION };
+    Ok(Html(page.render()?))
+}
+
+// ─── Prometheus metrics endpoint ─────────────────────────────────────────────
+
+/// GET `/metrics` — Prometheus text exposition format (no auth; Prometheus scrapers
+/// can't do cookie auth). Expose only when integrations are configured.
+pub async fn metrics_route(
+    State(state): State<ServerState>,
+) -> Result<([(axum::http::HeaderName, &'static str); 1], String), Error> {
+    let mqtt = state.mqtt_state.as_ref().ok_or(Error::MqttNotConfigured)?;
+    let ps = mqtt.prometheus.as_ref().ok_or(Error::MqttNotConfigured)?;
+
+    let encoder = prometheus::TextEncoder::new();
+    let metric_families = ps.registry.gather();
+    let body = encoder
+        .encode_to_string(&metric_families)
+        .map_err(|e| Error::PrometheusEncode(e.to_string()))?;
+
+    Ok(([(axum::http::header::CONTENT_TYPE, "text/plain; version=0.0.4")], body))
 }

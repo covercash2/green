@@ -26,6 +26,16 @@ export function applyFilter(cards: Card[], filterText: string): Card[] {
     return cards.filter(c => (c.dataset?.topic ?? '').toLowerCase().includes(lower));
 }
 
+/** Cards whose data-topic equals prefix or starts with "prefix/". */
+export function filterByPrefix(cards: Card[], prefix: string): Card[] {
+    if (!prefix) return cards;
+    const lower = prefix.toLowerCase();
+    return cards.filter(c => {
+        const topic = (c.dataset?.topic ?? '').toLowerCase();
+        return topic === lower || topic.startsWith(lower + '/');
+    });
+}
+
 /** Slice of cards for a given 0-indexed page. */
 export function getPage<T>(cards: T[], page: number, pageSize: number): T[] {
     const start = page * pageSize;
@@ -62,24 +72,24 @@ export function renderControls(currentPage: number, total: number, newCount: num
     const parts: string[] = [];
     const prevDisabled = currentPage === 0 ? ' disabled' : '';
     parts.push(
-        `<button class="mqtt-page-btn" data-page="${currentPage - 1}"${prevDisabled}>[ ← ]</button>`
+        `<button class="leet-btn mqtt-page-btn" data-page="${currentPage - 1}"${prevDisabled}>[ ← ]</button>`
     );
     for (const p of pageWindow(currentPage, total)) {
         if (p === null) {
             parts.push(`<span class="mqtt-page-ellipsis">…</span>`);
         } else {
-            const active = p === currentPage ? ' mqtt-page-active' : '';
+            const active = p === currentPage ? ' leet-btn-active' : '';
             const badge  = (p === 0 && newCount > 0 && currentPage > 0)
                 ? `<span class="mqtt-page-new">(+${newCount})</span>`
                 : '';
             parts.push(
-                `<button class="mqtt-page-btn${active}" data-page="${p}">[ ${p + 1}${badge} ]</button>`
+                `<button class="leet-btn mqtt-page-btn${active}" data-page="${p}">[ ${p + 1}${badge} ]</button>`
             );
         }
     }
     const nextDisabled = currentPage === total - 1 ? ' disabled' : '';
     parts.push(
-        `<button class="mqtt-page-btn" data-page="${currentPage + 1}"${nextDisabled}>[ → ]</button>`
+        `<button class="leet-btn mqtt-page-btn" data-page="${currentPage + 1}"${nextDisabled}>[ → ]</button>`
     );
     return parts.join('');
 }
@@ -91,6 +101,7 @@ if (typeof document !== 'undefined') {
     const statusBar   = document.getElementById('mqtt-status-bar');
     const filterInput = document.getElementById('mqtt-filter') as HTMLInputElement | null;
     const controls    = document.getElementById('mqtt-controls');
+    const topicBar    = document.getElementById('mqtt-topics');
 
     // State
     const allCards    = signal<Card[]>([]);
@@ -98,9 +109,25 @@ if (typeof document !== 'undefined') {
     const currentPage = signal(0);
     const newCount    = signal(0);
     const filterText  = signal('');
+    const activePrefix = signal('');
 
     // Derived
-    const filtered   = computed(() => applyFilter(allCards.value, filterText.value));
+    const topTopics = computed(() => {
+        const seen = new Set<string>();
+        for (const card of allCards.value) {
+            const top = (card.dataset?.topic ?? '').split('/')[0];
+            if (top) seen.add(top);
+        }
+        return [...seen].sort();
+    });
+
+    const filtered = computed(() => {
+        let cards = allCards.value;
+        if (activePrefix.value) cards = filterByPrefix(cards, activePrefix.value);
+        if (filterText.value)   cards = applyFilter(cards, filterText.value);
+        return cards;
+    });
+
     const totalCount = computed(() => totalPages(filtered.value, PAGE_SIZE));
 
     // Recompute pageCards from current state (call inside batch).
@@ -123,6 +150,45 @@ if (typeof document !== 'undefined') {
     effect(() => {
         if (!controls) return;
         controls.innerHTML = renderControls(currentPage.value, totalCount.value, newCount.value);
+    });
+
+    // Topic chips — rebuilt when the topic set or active prefix changes.
+    effect(() => {
+        if (!topicBar) return;
+        const topics = topTopics.value;
+        const active = activePrefix.value;
+        topicBar.innerHTML = '';
+
+        const allBtn = document.createElement('button');
+        allBtn.className = 'leet-btn' + (active === '' ? ' leet-btn-active' : '');
+        allBtn.dataset.prefix = '';
+        allBtn.textContent = 'all';
+        topicBar.appendChild(allBtn);
+
+        for (const t of topics) {
+            const btn = document.createElement('button');
+            btn.className = 'leet-btn' + (t === active ? ' leet-btn-active' : '');
+            btn.dataset.prefix = t;
+            btn.textContent = t;
+            topicBar.appendChild(btn);
+        }
+    });
+
+    topicBar?.addEventListener('click', (e) => {
+        const btn = (e.target as Element).closest('[data-prefix]') as HTMLButtonElement | null;
+        if (!btn) return;
+        batch(() => {
+            activePrefix.value = btn.dataset.prefix ?? '';
+            currentPage.value  = 0;
+            newCount.value     = 0;
+            refreshPage();
+        });
+    });
+
+    feed?.addEventListener('click', (e) => {
+        const header = (e.target as Element).closest('.mqtt-msg-header');
+        if (!header) return;
+        header.closest('.mqtt-msg')?.classList.toggle('mqtt-msg-expanded');
     });
 
     controls?.addEventListener('click', (e) => {
@@ -157,6 +223,12 @@ if (typeof document !== 'undefined') {
         tmp.innerHTML = (e as MessageEvent).data;
         const card = tmp.firstElementChild;
         if (!card) return;
+
+        const ts = (card as HTMLElement).dataset.receivedAt;
+        if (ts) {
+            const timeEl = card.querySelector('.mqtt-msg-time');
+            if (timeEl) timeEl.textContent = new Date(ts).toLocaleTimeString();
+        }
 
         const cards = allCards.value.slice();
         cards.unshift(card as unknown as Card);

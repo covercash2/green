@@ -83,6 +83,9 @@ pub enum Error {
 
     #[error("mqtt not configured")]
     MqttNotConfigured,
+
+    #[error("prometheus encode error: {0}")]
+    PrometheusEncode(String),
 }
 
 impl IntoResponse for Error {
@@ -106,6 +109,7 @@ impl IntoResponse for Error {
             | Error::SetGlobalSubscriber { .. }
             | Error::AuthSetup(_)
             | Error::Database(_)
+            | Error::PrometheusEncode(_)
             | Error::BreakerStore { .. }
             | Error::Io(_)
             | Error::NotesStore { .. } => StatusCode::INTERNAL_SERVER_ERROR,

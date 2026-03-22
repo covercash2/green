@@ -139,6 +139,22 @@ cargo clippy
 typos
 ```
 
+### Git Push Hook
+
+A pre-push hook lives in `scripts/hooks/pre-push`. After cloning (or after any teammate adds/updates the hook), install it:
+
+```bash
+just install-hooks
+```
+
+The hook runs `just _pre-push-checks` inside `nix develop`, which covers:
+
+1. `cargo fmt --check` — formatting
+2. `cargo clippy -- -D warnings` — lints
+3. `just coverage` — Rust tests + 70% line-coverage threshold
+4. `deno check src/js/` — TypeScript type-check
+5. `just js-test` — JS unit tests
+
 ## Architecture
 
 ### HTTP Routes
@@ -212,12 +228,20 @@ Uses Askama template engine with templates in `templates/` directory. All templa
 
 ### JavaScript
 
-JS files live in `assets/js/`. Each auth flow has a paired module:
-- `auth-login.js` / `test/js/auth-login.test.js`
-- `auth-register.js` / `test/js/auth-register.test.js`
-- `auth-recover.js` / `test/js/auth-recover.test.js`
+**No inline `<script>` blocks in templates.** All JS lives in the pipeline:
 
-Pattern: pure exported functions with injected deps (`fetch`, `startAuthentication`, etc.) for testability; DOM binding block at bottom guarded by `typeof document !== 'undefined'`. Tests use `node:test` with zero npm deps.
+```
+src/js/*.ts  →  just build-js  →  assets/js/*.js  ←  <script type="module" src="...">
+     ↑
+test/js/*.test.ts  (deno test, no browser)
+```
+
+Every page that needs JS gets a paired module:
+- `src/js/<page>.ts` — TypeScript source; pure exported functions + DOM binding block
+- `test/js/<page>.test.ts` — Deno tests importing directly from the `.ts` source
+- `assets/js/<page>.js` — compiled output (committed); loaded by the template
+
+Pattern: pure exported functions with injected deps (`fetch`, etc.) for testability; DOM binding block at bottom guarded by `typeof document !== 'undefined'`. When adding JS to a template, create the `.ts` source and tests first, then run `just build-js`.
 
 ## NixOS Module
 
