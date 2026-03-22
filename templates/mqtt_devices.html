@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+
+{% block title %}mqtt devices{% endblock %}
+
+{% block content %}
+<div class="leet-page-nav">
+    <a href="/mqtt" class="leet-link">&larr; mqtt</a>
+</div>
+<h1 class="leet-h1">mqtt devices</h1>
+
+{% if devices.is_empty() %}
+<p class="leet-muted">no devices tracked yet</p>
+{% else %}
+<table class="leet-table">
+    <thead>
+        <tr>
+            <th>integration</th>
+            <th>device id</th>
+            <th>first seen</th>
+            <th>last seen</th>
+            <th>messages</th>
+        </tr>
+    </thead>
+    <tbody>
+    {% for device in devices %}
+        <tr class="device-row" data-integration="{{ device.integration }}" data-device="{{ device.device_id }}">
+            <td>{{ device.integration }}</td>
+            <td>
+                {{ device.device_id }}
+                {% if device.device_id.starts_with("0x") %}
+                <span class="leet-badge-warn" title="raw hardware address — consider giving this device a friendly name">⚠ unnamed</span>
+                {% endif %}
+            </td>
+            <td>{{ device.first_seen }}</td>
+            <td>{{ device.last_seen }}</td>
+            <td>{{ device.message_count }}</td>
+        </tr>
+    {% endfor %}
+    </tbody>
+</table>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script type="module" src="/assets/js/mqtt-devices.js?v={{ version }}"></script>
+{% endblock %}

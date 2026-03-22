@@ -3,13 +3,18 @@
 {% block title %}mqtt{% endblock %}
 
 {% block content %}
-<a href="/" class="leet-link">&larr; back</a>
+<div class="leet-page-nav">
+    <a href="/" class="leet-link">&larr; back</a>
+    <a href="/mqtt/devices" class="leet-link">devices &rarr;</a>
+</div>
 <h1 class="leet-h1">mqtt live feed</h1>
 
 <div id="mqtt-status-bar" class="mqtt-status-bar">
     <span class="mqtt-dot mqtt-dot-connecting"></span>
     <span class="mqtt-status-text">connecting…</span>
 </div>
+
+<div id="mqtt-topics" class="mqtt-topics"></div>
 
 <div class="mqtt-filter-bar">
     <input

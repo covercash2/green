@@ -1,11 +1,39 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { applyFilter, getPage, totalPages, renderControls } from '../../src/js/mqtt.ts';
+import { applyFilter, filterByPrefix, getPage, totalPages, renderControls } from '../../src/js/mqtt.ts';
 
 // Helpers
 function cards(...topics) {
     return topics.map(t => ({ dataset: { topic: t } }));
 }
+
+// ── filterByPrefix ───────────────────────────────────────────────────────────
+
+test('filterByPrefix: empty prefix returns all cards', () => {
+    const cs = cards('home/temp', 'sensor/pressure');
+    assert.deepEqual(filterByPrefix(cs, ''), cs);
+});
+
+test('filterByPrefix: matches exact topic', () => {
+    const cs = cards('home', 'home/temp', 'sensor');
+    assert.deepEqual(filterByPrefix(cs, 'home'), [cs[0], cs[1]]);
+});
+
+test('filterByPrefix: matches topic/ prefix only, not substring', () => {
+    const cs = cards('home/temp', 'homework/done', 'home');
+    const result = filterByPrefix(cs, 'home');
+    assert.deepEqual(result, [cs[0], cs[2]]);
+});
+
+test('filterByPrefix: case-insensitive', () => {
+    const cs = cards('Home/Temp', 'SENSOR/pressure');
+    assert.equal(filterByPrefix(cs, 'home').length, 1);
+});
+
+test('filterByPrefix: no match returns empty', () => {
+    const cs = cards('home/temp', 'sensor/pressure');
+    assert.equal(filterByPrefix(cs, 'other').length, 0);
+});
 
 // ── applyFilter ──────────────────────────────────────────────────────────────
 
@@ -117,9 +145,9 @@ test('renderControls: prev enabled and next enabled on middle page', () => {
 
 test('renderControls: active class on current page button', () => {
     const html = renderControls(1, 3, 0);
-    assert.ok(html.includes('mqtt-page-active'), 'active class present');
+    assert.ok(html.includes('leet-btn-active'), 'active class present');
     // page 2 button (data-page="1") should have active class
-    assert.ok(html.includes('mqtt-page-active" data-page="1"'), 'active on correct page');
+    assert.ok(html.includes('leet-btn-active" data-page="1"'), 'active on correct page');
 });
 
 test('renderControls: badge shown on page-1 button when newCount > 0 and currentPage > 0', () => {

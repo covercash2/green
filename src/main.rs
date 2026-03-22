@@ -124,6 +124,26 @@ pub enum Route {
     #[serde(rename = "/api/mqtt/stream")]
     #[strum(serialize = "/api/mqtt/stream")]
     MqttStream,
+
+    /// Recent ring-buffer messages for a single device (GM only; used by devices panel).
+    #[serde(rename = "/api/mqtt/device-messages")]
+    #[strum(serialize = "/api/mqtt/device-messages")]
+    MqttDeviceMessages,
+
+    /// Publish an outbound message to the broker (GM only).
+    #[serde(rename = "/api/mqtt/publish")]
+    #[strum(serialize = "/api/mqtt/publish")]
+    MqttPublish,
+
+    /// MQTT device inventory page (GM only).
+    #[serde(rename = "/mqtt/devices")]
+    #[strum(serialize = "/mqtt/devices")]
+    MqttDevices,
+
+    /// Prometheus metrics scrape endpoint (unauthenticated; internal only).
+    #[serde(rename = "/metrics")]
+    #[strum(serialize = "/metrics")]
+    Metrics,
 }
 
 impl Route {
@@ -176,7 +196,8 @@ impl ServerState {
 
         let has_notes = notes_store.is_some();
         let has_mqtt = config.mqtt.is_some();
-        let index = Index::new(config.routes.clone(), has_notes, has_mqtt).await?;
+        let has_mqtt_devices = config.mqtt.as_ref().map_or(false, |m| !m.integrations.is_empty());
+        let index = Index::new(config.routes.clone(), has_notes, has_mqtt, has_mqtt_devices).await?;
 
         let store = Arc::new(BreakerStore::from_data(breaker_data)?);
         let breaker_content = Arc::new(breaker::BreakerContent::new(store.as_ref()));
@@ -197,14 +218,51 @@ impl ServerState {
                 std::collections::VecDeque::with_capacity(mqtt_config.scrollback),
             ));
             let task_recent = Arc::clone(&recent_messages);
+            let (mqtt_client, eventloop) = mqtt::setup_mqtt_client(mqtt_config);
+            let publish_client = mqtt_client.clone();
             let _ = tokio::spawn(async move {
-                mqtt::run_mqtt_task(task_config, task_tx, task_last_status, task_recent).await;
+                mqtt::run_mqtt_task(task_config, mqtt_client, eventloop, task_tx, task_last_status, task_recent).await;
                 tracing::error!("mqtt task exited unexpectedly");
             });
+
+            // Build Prometheus state when integrations are configured.
+            let parsed_integrations = Arc::new(mqtt::parse_integrations(&mqtt_config.integrations));
+            let prometheus = if !parsed_integrations.is_empty() {
+                let registry = prometheus::Registry::new();
+                let messages_total = prometheus::IntCounterVec::new(
+                    prometheus::opts!("mqtt_messages_total", "MQTT messages by integration and device"),
+                    &["integration", "device"],
+                )
+                .map_err(|e| Error::AuthSetup(format!("prometheus counter: {e}")))?;
+                registry
+                    .register(Box::new(messages_total.clone()))
+                    .map_err(|e| Error::AuthSetup(format!("prometheus register: {e}")))?;
+                Some(mqtt::PrometheusState { registry, messages_total })
+            } else {
+                None
+            };
+
+            // Spawn device tracker if integrations are configured and auth (DB) is available.
+            if let (false, Some(auth)) = (parsed_integrations.is_empty(), &auth_state) {
+                let tracker_rx = tx.subscribe();
+                let tracker_db = auth.db.clone();
+                let tracker_metrics =
+                    prometheus.as_ref().map(|p| p.messages_total.clone());
+                let _ = tokio::spawn(mqtt::run_device_tracker_task(
+                    Arc::clone(&parsed_integrations),
+                    tracker_db,
+                    tracker_metrics,
+                    tracker_rx,
+                ));
+            }
+
             Some(Arc::new(mqtt::MqttState {
                 tx,
                 last_status,
                 recent_messages,
+                prometheus,
+                integrations: parsed_integrations,
+                publish_client,
             }))
         } else {
             None
@@ -246,6 +304,10 @@ fn build_router(state: ServerState) -> axum::Router {
         .route("/auth/recover/verify", axum::routing::post(auth::verify_recovery))
         .route(Route::Mqtt.as_str(), get(mqtt::mqtt_page_route))
         .route(Route::MqttStream.as_str(), get(mqtt::mqtt_stream_route))
+        .route(Route::MqttDevices.as_str(), get(mqtt::mqtt_devices_route))
+        .route(Route::MqttDeviceMessages.as_str(), get(mqtt::device_messages_route))
+        .route(Route::MqttPublish.as_str(), axum::routing::post(mqtt::publish_route))
+        .route(Route::Metrics.as_str(), get(mqtt::metrics_route))
         .nest_service("/assets", ServeDir::new("assets"))
         .layer(
             TraceLayer::new_for_http()

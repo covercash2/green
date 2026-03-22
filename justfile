@@ -21,7 +21,7 @@ test:
 
 # compile TS → assets/js/ (commit the output)
 build-js:
-  deno bundle --platform=browser --minify --outdir assets/js src/js/auth-login.ts src/js/auth-register.ts src/js/mqtt.ts
+  deno bundle --platform=browser --minify --outdir assets/js src/js/auth-login.ts src/js/auth-register.ts src/js/mqtt.ts src/js/mqtt-devices.ts
 
 # type-check TS source files
 check-js:
@@ -65,6 +65,23 @@ check-flake:
 
 # run all the checks (tests + flake)
 check: test check-flake
+
+### hooks
+
+# install git hooks from scripts/hooks/ into .git/hooks/
+install-hooks:
+  cp scripts/hooks/pre-push .git/hooks/pre-push
+  chmod +x .git/hooks/pre-push
+  echo "installed pre-push hook"
+
+# all checks run by the pre-push hook (called via nix develop)
+[private]
+_pre-push-checks:
+  cargo fmt --check
+  cargo clippy -- -D warnings
+  just coverage
+  deno check src/js/
+  just js-test
 
 ### misc scripts
 
