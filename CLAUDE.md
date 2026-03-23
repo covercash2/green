@@ -170,6 +170,9 @@ The application has two types of routes:
    - `/breaker` - Breaker box panel (GM only)
    - `/tailscale` - Tailscale peer list (GM only)
    - `/notes`, `/notes/{slug}` - Notes vault pages
+   - `/mqtt` - Live MQTT message feed (GM only; SSE stream)
+   - `/mqtt/devices` - Device inventory table (GM only)
+   - `/metrics` - Prometheus scrape endpoint (unauthenticated)
 
 2. **Dynamic Routes** (configured via TOML):
    - Defined in config.toml under `[routes.*]` sections
@@ -218,7 +221,24 @@ rp_origin = "https://green.example.com"
 db_url = "postgres://green:pass@localhost/green"  # overridable by GREEN_DB_URL env var
 gm_users = ["alice"]               # usernames that receive the GM role
 ntfy_url = "https://ntfy.example.com/my-secret-topic"  # optional; recovery codes sent here
+
+[mqtt]
+host = "localhost"
+port = 1883
+# username = ""
+# password set via GREEN_MQTT_PASSWORD env var
+
+# Each integration declares a topic pattern.
+# {device} captures the device ID; * matches one segment; ** matches zero or more.
+[[mqtt.integrations]]
+pattern = "zigbee2mqtt/{device}/**"
+
+[[mqtt.integrations]]
+pattern = "homeassistant/*/{device}/**"
+name = "Home Assistant"   # optional display name; defaults to first literal segment
 ```
+
+`GREEN_MQTT_PASSWORD` env var sets the broker password (same injection mechanism as `GREEN_DB_URL`).
 
 The dev config (`config.dev.toml`) has `vault_path`, real `rp_origin`, and `ntfy_url` for local development. The plaintext `db_url` is acceptable in dev; production uses the `GREEN_DB_URL` env var via sops-nix.
 

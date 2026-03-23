@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { fetchDeviceMessages, sendCommand } from '../../src/js/mqtt-devices.ts';
+import { fetchDeviceMessages, sendCommand, handleDeviceRowClick, PanelController } from '../../src/js/mqtt-devices.ts';
 
 // Helpers
 function ok(text: string) {
@@ -9,6 +9,28 @@ function ok(text: string) {
 
 function fail(status: number) {
     return { ok: false, status, text: async () => 'error' };
+}
+
+/** Build a controllable PanelController mock.
+ *  `externalClose()` simulates another row's click calling closeAll during a fetch. */
+function makeCtrl(initiallyOpen: boolean): PanelController & {
+    closed: boolean;
+    opened: boolean;
+    inserted: string | null;
+    externalClose(): void;
+} {
+    let open = initiallyOpen;
+    return {
+        get wasOpen() { return initiallyOpen; },
+        closed: false,
+        opened: false,
+        inserted: null as string | null,
+        closeAll() { this.closed = true; open = false; },
+        markOpen() { this.opened = true; open = true; },
+        isStillOpen() { return open; },
+        insertPanel(html: string) { this.inserted = html; },
+        externalClose() { open = false; },
+    };
 }
 
 // ── fetchDeviceMessages ───────────────────────────────────────────────────────
@@ -108,4 +130,79 @@ test('sendCommand propagates fetch rejection', async () => {
         () => sendCommand('t', 'p', { fetch: async () => { throw new Error('network error'); } }),
         /network error/,
     );
+});
+
+// ── handleDeviceRowClick ──────────────────────────────────────────────────────
+
+test('click on closed row calls closeAll, markOpen, then insertPanel', async () => {
+    const ctrl = makeCtrl(false);
+    await handleDeviceRowClick('z', 'd', ctrl, {
+        fetch: async () => ok('<p>messages</p>'),
+    });
+    assert.ok(ctrl.closed, 'closeAll called');
+    assert.ok(ctrl.opened, 'markOpen called');
+    assert.equal(ctrl.inserted, '<p>messages</p>');
+});
+
+test('click on open row calls closeAll and returns without opening', async () => {
+    const ctrl = makeCtrl(true);
+    let fetchCalled = false;
+    await handleDeviceRowClick('z', 'd', ctrl, {
+        fetch: async () => { fetchCalled = true; return ok(''); },
+    });
+    assert.ok(ctrl.closed, 'closeAll called');
+    assert.ok(!ctrl.opened, 'markOpen NOT called');
+    assert.ok(!fetchCalled, 'fetch NOT called');
+    assert.equal(ctrl.inserted, null);
+});
+
+test('second click during fetch (race condition): panel is not inserted', async () => {
+    const ctrl = makeCtrl(false);
+    await handleDeviceRowClick('z', 'd', ctrl, {
+        fetch: async () => {
+            // Simulate a second click calling closeAll while the fetch is in flight.
+            ctrl.externalClose();
+            return ok('<p>stale</p>');
+        },
+    });
+    assert.equal(ctrl.inserted, null, 'stale panel must not be inserted');
+});
+
+test('switching rows during fetch: panel not inserted after closeAll', async () => {
+    const ctrl = makeCtrl(false);
+    let fetchResolveFn!: () => void;
+    const fetchStarted = new Promise<void>(resolve => { fetchResolveFn = resolve; });
+
+    const clickPromise = handleDeviceRowClick('z', 'd', ctrl, {
+        fetch: async () => {
+            fetchResolveFn();
+            // Another row is clicked; that handler calls closeAll on all rows.
+            ctrl.externalClose();
+            return ok('<p>row A html</p>');
+        },
+    });
+
+    await fetchStarted;
+    await clickPromise;
+
+    assert.equal(ctrl.inserted, null, 'panel must not be inserted after external close');
+});
+
+test('fetch error inserts error message when row is still open', async () => {
+    const ctrl = makeCtrl(false);
+    await handleDeviceRowClick('z', 'd', ctrl, {
+        fetch: async () => { throw new Error('timeout'); },
+    });
+    assert.ok(ctrl.inserted?.includes('timeout'), 'error message inserted');
+});
+
+test('fetch error does not insert when row was closed during fetch', async () => {
+    const ctrl = makeCtrl(false);
+    await handleDeviceRowClick('z', 'd', ctrl, {
+        fetch: async () => {
+            ctrl.externalClose();
+            throw new Error('timeout');
+        },
+    });
+    assert.equal(ctrl.inserted, null, 'no insert after external close + error');
 });

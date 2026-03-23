@@ -11,33 +11,35 @@
 {% if devices.is_empty() %}
 <p class="leet-muted">no devices tracked yet</p>
 {% else %}
-<table class="leet-table">
+<div class="leet-table-wrap">
+<table class="leet-table devices-table">
     <thead>
         <tr>
             <th>integration</th>
             <th>device id</th>
-            <th>first seen</th>
-            <th>last seen</th>
+            <th class="col-first-seen">first seen</th>
+            <th class="col-last-seen">last seen</th>
             <th>messages</th>
         </tr>
     </thead>
     <tbody>
     {% for device in devices %}
         <tr class="device-row" data-integration="{{ device.integration }}" data-device="{{ device.device_id }}">
-            <td>{{ device.integration }}</td>
-            <td>
+            <td data-label="integration">{{ device.integration }}</td>
+            <td data-label="device id">
                 {{ device.device_id }}
                 {% if device.device_id.starts_with("0x") %}
                 <span class="leet-badge-warn" title="raw hardware address — consider giving this device a friendly name">⚠ unnamed</span>
                 {% endif %}
             </td>
-            <td>{{ device.first_seen }}</td>
-            <td>{{ device.last_seen }}</td>
-            <td>{{ device.message_count }}</td>
+            <td class="col-first-seen" data-label="first seen">{{ device.first_seen }}</td>
+            <td class="col-last-seen" data-label="last seen">{{ device.last_seen }}</td>
+            <td data-label="messages">{{ device.message_count }}</td>
         </tr>
     {% endfor %}
     </tbody>
 </table>
+</div>
 {% endif %}
 {% endblock %}
 

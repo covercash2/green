@@ -40,7 +40,8 @@
       "Bash(deno check:*)",
       "Bash(deno install:*)",
       "Bash(deno test:*)",
-      "Bash(deno bundle:*)"
+      "Bash(deno bundle:*)",
+      "Bash(systemctl status:*)"
     ]
   }
 }
