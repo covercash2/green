@@ -1,0 +1,35 @@
+port = 47336
+ca_path = "/path/to/ca.pem"
+log_level = "info"
+
+[auth]
+rp_id = "example.com"
+rp_origin = "https://green.example.com"
+db_url = "postgres://green:changeme@localhost/green"   # overridable by GREEN_DB_URL env var
+gm_users = ["alice"]
+ntfy_url = "https://ntfy.example.com/your-secret-topic"  # optional
+
+[mqtt]
+host = "localhost"
+port = 1883
+# username = "green"
+# password set via GREEN_MQTT_PASSWORD env var
+
+[[mqtt.integrations]]
+pattern = "zigbee2mqtt/{device}/**"
+
+[[mqtt.integrations]]
+pattern = "homeassistant/*/{device}/**"
+name = "Home Assistant"
+
+[[mqtt.integrations]]
+pattern = "zwavejs/{device}/**"
+name = "Z-Wave"
+
+[routes.service1]
+url = "service1.example.com"
+description = "My first service"
+
+[routes.service2]
+url = "service2.example.com"
+description = "My second service"

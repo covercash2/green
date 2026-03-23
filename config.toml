@@ -50,7 +50,7 @@ pattern = "frigate/{device}/**"
 name = "Frigate"
 
 [[mqtt.integrations]]
-pattern = "zwavejs/{device}/**"
+pattern = "zwavejs/*/{device}/**"
 name = "Z-Wave"
 
 [routes.homeassistant]

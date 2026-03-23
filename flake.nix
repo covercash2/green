@@ -339,6 +339,54 @@
               example = "/var/lib/green";
             };
 
+            vaultPath = mkOption {
+              type = types.nullOr types.path;
+              default = null;
+              example = "/var/lib/green/vault";
+              description = "Path to the Obsidian-style notes vault. If null, /notes routes return 404.";
+            };
+
+            mqtt = mkOption {
+              default = null;
+              description = "MQTT broker configuration. If null, MQTT routes are disabled.";
+              type = types.nullOr (types.submodule {
+                options = {
+                  host = mkOption {
+                    type = types.str;
+                    default = "localhost";
+                    description = "MQTT broker hostname";
+                  };
+                  port = mkOption {
+                    type = types.port;
+                    default = 1883;
+                    description = "MQTT broker port";
+                  };
+                  username = mkOption {
+                    type = types.nullOr types.str;
+                    default = null;
+                    description = "MQTT broker username";
+                  };
+                  integrations = mkOption {
+                    description = "Topic pattern definitions for device tracking.";
+                    default = [];
+                    type = types.listOf (types.submodule {
+                      options = {
+                        pattern = mkOption {
+                          type = types.str;
+                          description = "Topic pattern with {device} capture, e.g. \"zigbee2mqtt/{device}/**\"";
+                        };
+                        name = mkOption {
+                          type = types.nullOr types.str;
+                          default = null;
+                          description = "Optional display name; defaults to first literal segment of pattern";
+                        };
+                      };
+                    });
+                  };
+                };
+              });
+            };
+
             auth = mkOption {
               default = null;
               description = "WebAuthn / passkey authentication configuration. If null, auth routes are disabled.";
@@ -405,6 +453,7 @@
               port = ${toString cfg.port}
               log_level = "${cfg.logLevel}"
               ca_path = "${cfg.caPath}"
+              ${lib.optionalString (cfg.vaultPath != null) "vault_path = \"${cfg.vaultPath}\""}
 
               ${lib.concatStringsSep "\n" (lib.mapAttrsToList (k: v: "[routes.${k}]\nurl = \"${v.url}\"\ndescription = \"${v.description}\"") cfg.routes)}
 
@@ -415,6 +464,19 @@
               db_url = "${cfg.auth.dbUrl}"
               gm_users = [${lib.concatStringsSep ", " (map (u: "\"${u}\"") cfg.auth.gmUsers)}]
               ${lib.optionalString (cfg.auth.ntfyUrl != null) "ntfy_url = \"${cfg.auth.ntfyUrl}\""}
+              ''}
+
+              ${lib.optionalString (cfg.mqtt != null) ''
+              [mqtt]
+              host = "${cfg.mqtt.host}"
+              port = ${toString cfg.mqtt.port}
+              ${lib.optionalString (cfg.mqtt.username != null) "username = \"${cfg.mqtt.username}\""}
+
+              ${lib.concatMapStringsSep "\n" (i: ''
+              [[mqtt.integrations]]
+              pattern = "${i.pattern}"
+              ${lib.optionalString (i.name != null) "name = \"${i.name}\""}
+              '') cfg.mqtt.integrations}
               ''}
             '';
 
