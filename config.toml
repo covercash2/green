@@ -35,6 +35,7 @@ description = "PostgreSQL database server"
 [mqtt]
 host = "localhost"
 port = 1883
+client_id = "green-mqtt"
 # username = ""
 # password set via GREEN_MQTT_PASSWORD env var
 

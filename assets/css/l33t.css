@@ -710,45 +710,17 @@
     margin-top: 1.5rem;
 }
 
-/* Secret / redacted content — present in DOM for future auth, hidden by CSS */
+/* Server-side redacted content — placeholder shown to non-GM viewers.
+   Secret text is never included in the HTML sent to the browser. */
 
-.notes-secret {
-    position: relative;
+.notes-redacted {
     margin: 1rem 0;
-    padding: 0.5rem 0.75rem;
+    padding: 0.4rem 0.75rem;
     border: 1px dashed rgba(198, 120, 221, 0.25);
-}
-
-.notes-secret::before {
-    content: "gm only";
-    display: block;
-    font-size: 0.7rem;
-    text-transform: uppercase;
-    letter-spacing: 0.12em;
-    color: var(--color-heading);
-    opacity: 0.55;
-    margin-bottom: 0.4rem;
+    color: var(--color-muted, #888);
+    font-style: italic;
+    font-size: 0.9em;
     user-select: none;
-}
-
-.notes-secret > * {
-    filter: blur(5px);
-    user-select: none;
-    pointer-events: none;
-    opacity: 0.7;
-}
-
-/* Future: add this class (e.g. via JS after auth) to reveal content */
-.notes-secret.notes-secret-revealed::before {
-    content: "gm only (revealed)";
-    opacity: 0.35;
-}
-
-.notes-secret.notes-secret-revealed > * {
-    filter: none;
-    user-select: auto;
-    pointer-events: auto;
-    opacity: 1;
 }
 
 .notes-secret-badge {
@@ -1217,4 +1189,59 @@ tr.device-row[data-panel-open] {
 .device-cmd-status {
     font-size: 0.75rem;
     opacity: 0.65;
+}
+
+/* --- Log viewer --- */
+
+.logs-controls {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin-bottom: 0.5rem;
+}
+
+.logs-autoscroll-label {
+    font-size: 0.8rem;
+    color: var(--color-fg-dim);
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    cursor: pointer;
+}
+
+.log-feed {
+    height: 70vh;
+    overflow-y: auto;
+    background: var(--color-bg-item);
+    border: 1px solid rgba(51, 255, 51, 0.15);
+    padding: 0.5rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+}
+
+.log-line {
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    white-space: pre-wrap;
+    word-break: break-all;
+    padding: 0.1rem 0;
+    color: var(--color-fg);
+}
+
+.log-line-error {
+    color: #ff6b6b;
+    text-shadow: 0 0 4px rgba(255, 107, 107, 0.3);
+}
+
+.log-line-warn {
+    color: #f0c060;
+}
+
+.log-line-debug {
+    opacity: 0.5;
+}
+
+.log-line-raw {
+    color: var(--color-fg-dim);
 }

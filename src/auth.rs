@@ -316,8 +316,13 @@ impl FromRequestParts<ServerState> for AuthUser {
             .as_ref()
             .ok_or_else(|| Redirect::to("/").into_response())?;
 
-        let next = parts.uri.path();
-        let login_url = format!("/auth/login?next={next}");
+        let next = parts
+            .uri
+            .path_and_query()
+            .map(|pq| pq.as_str())
+            .unwrap_or_else(|| parts.uri.path());
+        let encoded_next: String = url::form_urlencoded::byte_serialize(next.as_bytes()).collect();
+        let login_url = format!("/auth/login?next={encoded_next}");
 
         let token = session_token_from_parts(parts)
             .ok_or_else(|| Redirect::to(&login_url).into_response())?;
@@ -932,7 +937,7 @@ mod tests {
         let store = Arc::new(BreakerStore::from_data(data).unwrap());
         let breaker_content = Arc::new(BreakerContent::new(store.as_ref()));
         let breaker_detail_store: Arc<dyn BreakerDetailStore> = store;
-        let index = Index::new(Routes::default(), false, false, false).await.unwrap();
+        let index = Index::new(Routes::default(), false, false, false, false).await.unwrap();
 
         ServerState {
             certificate: Arc::from("fake-cert"),
@@ -943,6 +948,7 @@ mod tests {
             notes_store: None,
             auth_state: Some(Arc::new(auth_state)),
             mqtt_state: None,
+            log_config: None,
         }
     }
 
@@ -984,7 +990,43 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(res.status(), StatusCode::SEE_OTHER);
-        assert_eq!(res.headers().get("location").unwrap(), "/auth/login?next=/gm-only");
+        assert_eq!(res.headers().get("location").unwrap(), "/auth/login?next=%2Fgm-only");
+    }
+
+    #[tokio::test]
+    async fn gm_user_no_session_preserves_query_string_in_next() {
+        let state = state_with_auth().await;
+        let res = gm_router(state)
+            .oneshot(
+                Request::builder()
+                    .uri("/gm-only?foo=bar")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::SEE_OTHER);
+        let location = res.headers().get("location").unwrap().to_str().unwrap();
+        // The full path+query must be encoded so `&` can't corrupt the outer URL.
+        assert_eq!(location, "/auth/login?next=%2Fgm-only%3Ffoo%3Dbar");
+    }
+
+    #[tokio::test]
+    async fn gm_user_no_session_encodes_ampersand_in_next() {
+        let state = state_with_auth().await;
+        let res = gm_router(state)
+            .oneshot(
+                Request::builder()
+                    .uri("/gm-only?a=1&b=2")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::SEE_OTHER);
+        let location = res.headers().get("location").unwrap().to_str().unwrap();
+        // Without encoding, `&b=2` would be parsed as a second query param, not part of `next`.
+        assert_eq!(location, "/auth/login?next=%2Fgm-only%3Fa%3D1%26b%3D2");
     }
 
     #[tokio::test]

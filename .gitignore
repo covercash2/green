@@ -1,5 +1,7 @@
 target/
 
+.claude/settings.local.json
+
 secrets.toml
 secrets
 
@@ -8,7 +10,10 @@ secrets
 # pre-commit
 .pre-commit-config.yaml
 
-logs.ndjson
+logs/*
+!logs/.gitkeep
+# Legacy log locations — safe to delete
+logs.ndjson*
 errors.log
 .watch_state.toml
 

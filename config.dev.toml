@@ -1,12 +1,17 @@
 port = 10000
 ca_path = "fixtures/testCA.pem"
-log_level = "debug"
+log_level = "debug,sqlx=warn"
 vault_path = "fixtures/vault"
+
+[log_config]
+app_log = "logs/logs.ndjson"
+error_log = "logs/errors.log"
 
 [auth]
 rp_id = "dev.green.chrash.net"
 rp_origin = "https://dev.green.chrash.net"
-db_url = "postgres://green:devpassword@localhost/green"
+# Placeholder — real URL is supplied at runtime via GREEN_DB_URL (set in secrets.toml).
+db_url = "postgres://green:placeholder@localhost/green"
 gm_users = ["chrash"]
 ntfy_url = "http://localhost:8083/green-recovery"
 
@@ -14,6 +19,7 @@ ntfy_url = "http://localhost:8083/green-recovery"
 host = "localhost"
 port = 1883
 username = "green"
+client_id = "green-mqtt-dev"
 # GREEN_MQTT_PASSWORD env var supplies the password at runtime
 
 [[mqtt.integrations]]

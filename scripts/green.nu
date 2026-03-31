@@ -11,8 +11,8 @@
 #   green stop                 — shut the server down
 #
 # Log files (rotated to <file>.1 when > 5 MB on start, otherwise truncated):
-#   logs.ndjson   — structured JSON tracing output from the green binary (stdout)
-#   errors.log    — cargo build output, panics, and server stderr
+#   logs/logs.ndjson   — structured JSON tracing output from the green binary (stdout)
+#   logs/errors.log    — cargo build output, panics, and server stderr
 
 const LOCAL_ADDRESS = "http://localhost:10000"
 
@@ -20,10 +20,10 @@ const LOCAL_ADDRESS = "http://localhost:10000"
 export const watch_file = "./.watch_state.toml"
 
 # Structured JSON tracing output from the running server (stdout).
-export const log_file = "./logs.ndjson"
+export const log_file = "./logs/logs.ndjson"
 
 # Cargo build output and server stderr — panics, errors, warnings.
-export const error_log_file = "./errors.log"
+export const error_log_file = "./logs/errors.log"
 
 # Print a timestamped status line to the terminal.
 export def log [message: string] {
@@ -126,7 +126,7 @@ export def "green start" [
         | to toml
         | save --force $watch_file
 
-    log "server started — watching logs.ndjson and errors.log"
+    log "server started — watching logs/logs.ndjson and logs/errors.log"
 }
 
 # Stop the running server by sending SIGTERM to all matching processes.

@@ -11,8 +11,8 @@ def main [config_path: path] {
     # Derive the project root from this script's location: scripts/server.nu → project root.
     # Using an absolute base ensures paths are stable even if the inherited CWD is wrong.
     let project_root = ($env.CURRENT_FILE | path dirname | path dirname)
-    let abs_log_file = ($project_root | path join "logs.ndjson")
-    let abs_error_log_file = ($project_root | path join "errors.log")
+    let abs_log_file = ($project_root | path join "logs" "logs.ndjson")
+    let abs_error_log_file = ($project_root | path join "logs" "errors.log")
 
     # Change to the project root so that `cargo run` finds Cargo.toml and any
     # relative paths in the binary's own config resolve correctly.

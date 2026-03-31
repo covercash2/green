@@ -41,7 +41,10 @@
       "Bash(deno install:*)",
       "Bash(deno test:*)",
       "Bash(deno bundle:*)",
-      "Bash(systemctl status:*)"
+      "Bash(systemctl status:*)",
+      "Bash(deno --version)",
+      "Bash(deno info:*)",
+      "Bash(deno cache:*)"
     ]
   }
 }

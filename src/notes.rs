@@ -89,10 +89,11 @@ impl PartialEq<&str> for Slug {
 /// HTML that has been produced by our rendering pipeline and is safe to
 /// inject into templates with `|safe`.
 ///
-/// The only way to obtain a `RenderedHtml` is via [`render_note_body`] (or
-/// the lower-level [`render_markdown`]), which means any instance has gone
-/// through pulldown-cmark and is not raw user input. This makes `|safe` in
-/// Askama templates self-documenting and auditable.
+/// The only way to obtain a `RenderedHtml` is via [`render_note_body_redacted`],
+/// [`render_note_body_revealed`], or the lower-level [`render_markdown`]. All
+/// three go through pulldown-cmark with raw-HTML sanitisation, so no raw user
+/// input can reach the template. This makes `|safe` in Askama templates
+/// self-documenting and auditable.
 #[derive(Debug, Clone)]
 pub struct RenderedHtml(String);
 
@@ -180,6 +181,23 @@ fn parse_frontmatter(content: &str) -> (FrontMatter, &str) {
     }
 }
 
+/// Escape the five HTML-special characters so that untrusted text is safe to
+/// embed in an HTML attribute value or element content.
+fn escape_html(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for ch in s.chars() {
+        match ch {
+            '&'  => out.push_str("&amp;"),
+            '<'  => out.push_str("&lt;"),
+            '>'  => out.push_str("&gt;"),
+            '"'  => out.push_str("&quot;"),
+            '\'' => out.push_str("&#x27;"),
+            c    => out.push(c),
+        }
+    }
+    out
+}
+
 fn resolve_wiki_links(text: &str, slug_set: &HashSet<Slug>) -> String {
     let mut result = String::with_capacity(text.len());
     let mut remaining = text;
@@ -199,7 +217,10 @@ fn resolve_wiki_links(text: &str, slug_set: &HashSet<Slug>) -> String {
                 (inner, inner)
             };
 
+            // Slug only contains [a-z0-9-] so it is safe in href without further escaping.
+            // display comes from note content and must be HTML-escaped before insertion.
             let slug = Slug::from_stem(target);
+            let display = escape_html(display);
             if slug_set.contains(&slug) {
                 result.push_str(&format!(
                     r#"<a href="/notes/{slug}" class="leet-link">{display}</a>"#
@@ -286,44 +307,55 @@ fn split_on_secret_paragraphs(text: &str) -> Vec<(String, bool)> {
 /// Render Markdown to trusted HTML. The returned [`RenderedHtml`] is the
 /// only public surface of this transformation — callers cannot construct
 /// one independently.
+///
+/// Raw HTML in Markdown (`Event::Html` / `Event::InlineHtml`) is converted to
+/// `Event::Text` before rendering so that pulldown-cmark HTML-escapes it. This
+/// prevents a note author from injecting arbitrary HTML/JS through literal
+/// `<script>` blocks or inline tags, preserving the `RenderedHtml` safety
+/// guarantee.
 fn render_markdown(md: &str) -> RenderedHtml {
-    use pulldown_cmark::{Options, Parser, html};
+    use pulldown_cmark::{Event, Options, Parser, html};
 
     let opts = Options::ENABLE_TABLES
         | Options::ENABLE_STRIKETHROUGH
         | Options::ENABLE_TASKLISTS;
-    let parser = Parser::new_ext(md, opts);
+    let parser = Parser::new_ext(md, opts).map(|event| match event {
+        // Treat raw HTML as plain text so pulldown-cmark escapes it on output.
+        Event::Html(raw) | Event::InlineHtml(raw) => Event::Text(raw),
+        other => other,
+    });
     let mut output = String::new();
     html::push_html(&mut output, parser);
     RenderedHtml(output)
 }
 
-/// Render the full body of a note, processing `#secret` paragraph tags.
+/// Server-side placeholder emitted in place of every secret paragraph for non-GM viewers.
+/// The secret text is never included in the response.
+const SECRET_PLACEHOLDER: &str = "<p class=\"notes-redacted\">🔒 redacted</p>\n";
+
+/// Render the note body for a non-GM viewer.
 ///
-/// Returns `(html, has_secrets)`. Secret paragraphs are wrapped in
-/// `<div class="notes-secret">` so they remain in the DOM for a future
-/// auth layer to reveal, while CSS keeps them visually redacted.
-fn render_note_body(text: &str) -> (RenderedHtml, bool) {
+/// Secret paragraphs (inline `#secret` tag) are replaced with
+/// [`SECRET_PLACEHOLDER`] — the secret text is **never sent to the browser**.
+/// Public paragraphs are rendered as normal Markdown HTML.
+///
+/// Returns `(html, has_secrets)`.
+fn render_note_body_redacted(text: &str) -> (RenderedHtml, bool) {
     let parts = split_on_secret_paragraphs(text);
     let has_secrets = parts.iter().any(|(_, is_secret)| *is_secret);
-
     let mut output = String::new();
     for (content, is_secret) in &parts {
-        let rendered = render_markdown(content);
         if *is_secret {
-            output.push_str(r#"<div class="notes-secret">"#);
-            output.push_str(rendered.as_str());
-            output.push_str("</div>\n");
+            output.push_str(SECRET_PLACEHOLDER);
         } else {
-            output.push_str(rendered.as_str());
+            output.push_str(render_markdown(content).as_str());
         }
     }
-
     (RenderedHtml(output), has_secrets)
 }
 
-/// Like [`render_note_body`] but renders secret paragraphs without the
-/// `<div class="notes-secret">` wrapper. Intended for GM-authenticated views.
+/// Render the full note body for a GM viewer: all paragraphs, including secret
+/// ones, rendered as plain Markdown HTML with no redaction or wrapper.
 fn render_note_body_revealed(text: &str) -> RenderedHtml {
     let parts = split_on_secret_paragraphs(text);
     let mut output = String::new();
@@ -403,16 +435,12 @@ impl NotesStore {
             // `tags: [secret]` (Obsidian-style) marks the entire note as redacted.
             let is_whole_secret = fm.tags.iter().any(|t| t == "secret");
             let (html, html_gm, has_secrets) = if is_whole_secret {
-                let rendered = render_markdown(&resolved);
-                let wrapped = RenderedHtml(format!(
-                    r#"<div class="notes-secret">{}</div>"#,
-                    rendered.as_str()
-                ));
-                // GM sees the note without the wrapper
+                // Player receives only the placeholder — no secret text is sent.
+                let player = RenderedHtml(SECRET_PLACEHOLDER.to_owned());
                 let gm = render_markdown(&resolved);
-                (wrapped, gm, true)
+                (player, gm, true)
             } else {
-                let (player_html, has_secrets) = render_note_body(&resolved);
+                let (player_html, has_secrets) = render_note_body_redacted(&resolved);
                 let gm_html = render_note_body_revealed(&resolved);
                 (player_html, gm_html, has_secrets)
             };
@@ -695,6 +723,44 @@ mod tests {
         assert_eq!(resolve_wiki_links(input, &known), input);
     }
 
+    #[test]
+    fn resolve_xss_in_display_text_is_escaped() {
+        let known = slug_set(&["Target"]);
+        let result = resolve_wiki_links(
+            r#"[[Target|<script>alert(1)</script>]]"#,
+            &known,
+        );
+        assert!(!result.contains("<script>"), "raw <script> must not appear");
+        assert!(result.contains("&lt;script&gt;"));
+    }
+
+    #[test]
+    fn resolve_xss_in_dead_link_display_is_escaped() {
+        let known = slug_set(&[]);
+        let result = resolve_wiki_links(
+            r#"[[Unknown|<img src=x onerror=alert(1)>]]"#,
+            &known,
+        );
+        assert!(!result.contains("<img"), "raw <img> must not appear");
+        assert!(result.contains("&lt;img"));
+    }
+
+    #[test]
+    fn resolve_html_entities_in_display_text() {
+        let known = slug_set(&["Target"]);
+        let result = resolve_wiki_links(r#"[[Target|A & B "quoted"]]"#, &known);
+        assert!(result.contains("A &amp; B &quot;quoted&quot;"));
+        assert!(!result.contains(r#"A & B "quoted""#));
+    }
+
+    #[test]
+    fn escape_html_encodes_all_special_chars() {
+        assert_eq!(
+            escape_html(r#"<>&"'"#),
+            "&lt;&gt;&amp;&quot;&#x27;"
+        );
+    }
+
     // ── split_on_secret_paragraphs ────────────────────────────────────────────
 
     #[test]
@@ -765,38 +831,73 @@ mod tests {
         assert!(parts[0].1);
     }
 
-    // ── render_note_body ──────────────────────────────────────────────────────
+    // ── render_markdown (HTML sanitisation) ──────────────────────────────────
 
     #[test]
-    fn render_body_wraps_secret_paragraph_in_div() {
-        let text = "before\n\nhidden content #secret\n\nafter\n";
-        let (html, has_secrets) = render_note_body(text);
-        assert!(has_secrets);
-        assert!(html.as_str().contains(r#"class="notes-secret""#));
-        assert!(html.as_str().contains("hidden content"));
+    fn render_markdown_escapes_raw_html_block() {
+        let html = render_markdown("<script>alert(1)</script>\n");
+        assert!(!html.as_str().contains("<script>"), "raw <script> must not pass through");
+        assert!(html.as_str().contains("&lt;script&gt;"));
     }
 
     #[test]
-    fn render_body_public_content_not_wrapped() {
-        let text = "public content\n\nhidden #secret\n";
-        let (html, _) = render_note_body(text);
+    fn render_markdown_escapes_inline_html() {
+        let html = render_markdown("Hello <b>world</b> text");
+        assert!(!html.as_str().contains("<b>"), "inline HTML must not pass through");
+        assert!(html.as_str().contains("&lt;b&gt;"));
+    }
+
+    #[test]
+    fn render_markdown_escapes_script_injection_via_inline_html() {
+        let html = render_markdown("Click <img src=x onerror=alert(1)>");
+        assert!(!html.as_str().contains("<img"), "raw <img> must not pass through");
+        assert!(html.as_str().contains("&lt;img"));
+    }
+
+    #[test]
+    fn render_markdown_normal_formatting_unaffected() {
+        let html = render_markdown("**bold** and _italic_");
+        assert!(html.as_str().contains("<strong>bold</strong>"));
+        assert!(html.as_str().contains("<em>italic</em>"));
+    }
+
+    // ── render_note_body ──────────────────────────────────────────────────────
+
+    #[test]
+    fn render_body_redacts_secret_paragraph() {
+        let text = "before\n\nhidden content #secret\n\nafter\n";
+        let (html, has_secrets) = render_note_body_redacted(text);
         let s = html.as_str();
-        let public_pos = s.find("public content").expect("public content should be present");
-        let secret_pos = s.find(r#"class="notes-secret""#).unwrap_or(usize::MAX);
-        assert!(public_pos < secret_pos || secret_pos == usize::MAX);
+        assert!(has_secrets);
+        // Secret text must not appear in the player HTML at all.
+        assert!(!s.contains("hidden content"), "secret text must not be sent to browser");
+        // Placeholder is present instead.
+        assert!(s.contains("notes-redacted"), "placeholder must be present");
+        // Public content is still rendered.
+        assert!(s.contains("before") && s.contains("after"));
+    }
+
+    #[test]
+    fn render_body_public_content_not_redacted() {
+        let text = "public content\n\nhidden #secret\n";
+        let (html, _) = render_note_body_redacted(text);
+        let s = html.as_str();
+        assert!(s.contains("public content"), "public paragraphs must be present");
+        assert!(!s.contains("hidden"), "secret paragraph text must be absent");
     }
 
     #[test]
     fn render_body_no_secrets_has_secrets_false() {
-        let (_, has_secrets) = render_note_body("just public content\n");
+        let (_, has_secrets) = render_note_body_redacted("just public content\n");
         assert!(!has_secrets);
     }
 
     #[test]
-    fn render_body_markdown_inside_secret_is_rendered() {
+    fn render_body_revealed_includes_secret_text() {
         let text = "**bold secret** #secret\n";
-        let (html, _) = render_note_body(text);
-        assert!(html.as_str().contains("<strong>"), "markdown inside secret should be rendered");
+        let html = render_note_body_revealed(text);
+        // GM view: secret text is rendered (no redaction).
+        assert!(html.as_str().contains("bold secret"), "GM view must include secret text");
     }
 
     // ── NotesStore::scan ──────────────────────────────────────────────────────
@@ -846,32 +947,58 @@ mod tests {
         let store = fixture_store();
         let session = store.get("session-1").expect("session-1 should exist");
         assert!(session.has_secrets, "session-1 has a #secret-tagged paragraph");
+        // Player HTML shows the placeholder, not the secret content.
         assert!(
-            session.html.as_str().contains(r#"class="notes-secret""#),
-            "secret paragraph should be wrapped in notes-secret div"
+            session.html.as_str().contains("notes-redacted"),
+            "secret paragraph should be replaced with the redacted placeholder"
         );
     }
 
     #[test]
-    fn scan_inline_secret_content_present_in_dom() {
-        // The secret content must remain in the DOM (for future auth reveal).
+    fn scan_inline_secret_content_absent_from_player_html() {
+        // Secret text must never be sent to a non-GM browser.
         let store = fixture_store();
         let session = store.get("session-1").expect("session-1 should exist");
         assert!(
-            session.html.as_str().contains("Malachar"),
-            "secret content should be present in HTML (redacted by CSS, not removed)"
+            !session.html.as_str().contains("Malachar"),
+            "secret text must be absent from player HTML"
         );
     }
 
     #[test]
-    fn scan_secret_tag_in_frontmatter_wraps_entire_body() {
+    fn scan_inline_secret_content_present_in_gm_html() {
+        // GM variant must contain the full secret text.
+        let store = fixture_store();
+        let session = store.get("session-1").expect("session-1 should exist");
+        assert!(
+            session.html_gm.as_str().contains("Malachar"),
+            "secret text must be present in GM HTML"
+        );
+    }
+
+    #[test]
+    fn scan_whole_note_secret_player_html_is_placeholder() {
         let store = fixture_store();
         let gm = store.get("gm-notes").expect("gm-notes should exist");
-        assert!(gm.has_secrets, "tags: [secret] note should have has_secrets");
-        let html = gm.html.as_str();
+        assert!(gm.has_secrets);
+        // Player HTML must be just the placeholder — none of the note body.
         assert!(
-            html.starts_with(r#"<div class="notes-secret">"#),
-            "entire body should be wrapped in notes-secret div; got: {html}"
+            gm.html.as_str().contains("notes-redacted"),
+            "whole-note secret player HTML should be the redacted placeholder"
+        );
+        assert!(
+            !gm.html.as_str().contains("portal"),
+            "whole-note secret text must not appear in player HTML"
+        );
+    }
+
+    #[test]
+    fn scan_whole_note_secret_gm_html_contains_content() {
+        let store = fixture_store();
+        let gm = store.get("gm-notes").expect("gm-notes should exist");
+        assert!(
+            gm.html_gm.as_str().contains("portal"),
+            "GM HTML must contain full note content"
         );
     }
 
@@ -950,7 +1077,7 @@ mod tests {
         let breaker_detail_store: Arc<dyn BreakerDetailStore> = store.clone();
         let breaker_content = Arc::new(BreakerContent::new(store.as_ref()));
         let has_notes = notes_store.is_some();
-        let index = Index::new(Routes::default(), has_notes, false, false).await.unwrap();
+        let index = Index::new(Routes::default(), has_notes, false, false, false).await.unwrap();
 
         ServerState {
             certificate: Arc::from("fake-cert"),
@@ -961,6 +1088,7 @@ mod tests {
             notes_store,
             auth_state: None,
             mqtt_state: None,
+            log_config: None,
         }
     }
 
@@ -1062,7 +1190,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn handler_notes_detail_secret_content_in_dom_but_redacted() {
+    async fn handler_notes_detail_secret_content_absent_for_non_gm() {
         let store = Some(Arc::new(fixture_store()));
         let state = minimal_state(store).await;
         let app = notes_router(state);
@@ -1074,10 +1202,10 @@ mod tests {
         let res = app.oneshot(req).await.unwrap();
         let text = body_text(res).await;
 
-        // Secret content is present in the DOM (for future auth).
-        assert!(text.contains("Malachar"), "secret content must remain in DOM");
-        // Wrapped in the redaction div.
-        assert!(text.contains(r#"class="notes-secret""#));
+        // Secret text must not be sent to a non-GM browser at all.
+        assert!(!text.contains("Malachar"), "secret text must be absent from non-GM response");
+        // The placeholder must be present instead.
+        assert!(text.contains("notes-redacted"));
     }
 
     #[tokio::test]

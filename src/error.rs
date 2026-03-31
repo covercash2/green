@@ -86,6 +86,9 @@ pub enum Error {
 
     #[error("prometheus encode error: {0}")]
     PrometheusEncode(String),
+
+    #[error("logs not configured")]
+    LogsNotConfigured,
 }
 
 impl IntoResponse for Error {
@@ -100,7 +103,7 @@ impl IntoResponse for Error {
             Error::TailscaleConnect { .. }
             | Error::TailscaleParse(_)
             | Error::TailscaleDeserialize { .. } => StatusCode::BAD_GATEWAY,
-            Error::MqttNotConfigured => StatusCode::NOT_FOUND,
+            Error::MqttNotConfigured | Error::LogsNotConfigured => StatusCode::NOT_FOUND,
             Error::EnvLevel { .. }
             | Error::DeserializeTomlFile { .. }
             | Error::TemplateRender { .. }
