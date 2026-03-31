@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+
+{% block title %}logs: app{% endblock %}
+
+{% block content %}
+<div class="leet-page-nav">
+    <a href="/" class="leet-link">&larr; back</a>
+    <a href="/logs/errors" class="leet-link">errors &rarr;</a>
+</div>
+<h1 class="leet-h1">app trace log</h1>
+
+<div class="logs-controls">
+    <label class="logs-autoscroll-label">
+        <input type="checkbox" id="logs-autoscroll" checked>
+        auto-scroll
+    </label>
+</div>
+
+<div id="log-feed" class="log-feed" data-stream="/api/logs/app/stream"></div>
+{% endblock %}
+
+{% block scripts %}
+<script type="module" src="/assets/js/logs.js?v={{ version }}"></script>
+{% endblock %}

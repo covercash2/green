@@ -1,12 +1,12 @@
 //! MQTT live-feed page: background subscriber task + SSE fan-out.
 
 use std::{
-    collections::VecDeque,
+    collections::{HashMap, VecDeque},
     convert::Infallible,
     future::Future,
     pin::Pin,
-    sync::{Arc, RwLock},
-    time::Duration,
+    sync::Arc,
+    time::{Duration, Instant},
 };
 
 use time::format_description::well_known::Rfc3339;
@@ -23,7 +23,7 @@ use axum::{
 use futures::StreamExt as _;
 use rumqttc::{AsyncClient, Event as MqttEvent, EventLoop, MqttOptions, Packet, QoS};
 use serde::{Deserialize, Serialize};
-use tokio::sync::broadcast;
+use tokio::sync::{broadcast, watch, Mutex as TokioMutex};
 
 use crate::{
     auth::{AuthUserInfo, GmUser},
@@ -80,11 +80,14 @@ pub struct MqttConfig {
     /// Integration configs for device tracking. Empty = no tracking.
     #[serde(default)]
     pub integrations: Vec<IntegrationConfig>,
+    /// MQTT client ID sent to the broker. Must be unique per connected instance.
+    pub client_id: String,
 }
 
 fn default_host() -> String {
     "localhost".to_string()
 }
+
 
 fn default_port() -> u16 {
     1883
@@ -243,10 +246,10 @@ pub struct MqttState {
     /// Broadcast sender; SSE handlers subscribe by calling `tx.subscribe()`.
     pub tx: broadcast::Sender<BrokerEvent>,
     /// Last known broker status (`"connected"`, `"error"`, `"connecting"`).
-    /// Sent immediately to new SSE clients so they don't wait for the next event.
-    pub last_status: Arc<RwLock<String>>,
+    /// New SSE clients call `.borrow()` for an immediate snapshot without waiting.
+    pub status_tx: Arc<watch::Sender<String>>,
     /// Ring buffer of recent messages replayed to new SSE clients on connect.
-    pub recent_messages: Arc<RwLock<VecDeque<MqttMessage>>>,
+    pub recent_messages: Arc<TokioMutex<VecDeque<MqttMessage>>>,
     /// Prometheus metrics, present only when integrations are configured.
     pub prometheus: Option<PrometheusState>,
     /// Parsed integrations, shared with the device tracker task and message filter handler.
@@ -280,13 +283,13 @@ impl MqttSubscriber for AsyncClient {
 async fn handle_conn_ack(
     client: &impl MqttSubscriber,
     topics: &[String],
-    last_status: &Arc<RwLock<String>>,
+    status_tx: &Arc<watch::Sender<String>>,
     tx: &broadcast::Sender<BrokerEvent>,
     host: &str,
     port: u16,
 ) {
     tracing::info!(host, port, "MQTT connected");
-    *last_status.write().expect("last_status poisoned") = "connected".into();
+    let _ = status_tx.send_replace("connected".into());
     let _ = tx.send(BrokerEvent::Status { status: "connected".into() });
     // Re-subscribe after every (re)connect so reconnects pick up the same topics.
     for topic in topics {
@@ -298,21 +301,21 @@ async fn handle_conn_ack(
 
 /// Handle a Publish packet: store in the ring buffer and broadcast to SSE clients.
 /// Extracted for testability — called by [`run_mqtt_task`] on every received message.
-fn handle_publish(
+async fn handle_publish(
     topic: String,
     payload: &[u8],
     scrollback: usize,
     tx: &broadcast::Sender<BrokerEvent>,
-    recent_messages: &Arc<RwLock<VecDeque<MqttMessage>>>,
+    recent_messages: &Arc<TokioMutex<VecDeque<MqttMessage>>>,
 ) {
     let msg = MqttMessage {
         topic,
         payload: String::from_utf8_lossy(payload).into_owned(),
         received_at: utc_now(),
     };
-    tracing::debug!(topic = %msg.topic, "MQTT message received");
+    tracing::trace!(topic = %msg.topic, "MQTT message received");
     {
-        let mut buf = recent_messages.write().expect("recent_messages poisoned");
+        let mut buf = recent_messages.lock().await;
         if buf.len() == scrollback {
             let _ = buf.pop_front();
         }
@@ -325,11 +328,11 @@ fn handle_publish(
 /// Extracted for testability — the retry sleep stays in [`run_mqtt_task`].
 fn handle_error(
     err: &rumqttc::ConnectionError,
-    last_status: &Arc<RwLock<String>>,
+    status_tx: &Arc<watch::Sender<String>>,
     tx: &broadcast::Sender<BrokerEvent>,
 ) {
     tracing::warn!(%err, "MQTT eventloop error, will retry");
-    *last_status.write().expect("last_status poisoned") = "error".into();
+    let _ = status_tx.send_replace("error".into());
     let _ = tx.send(BrokerEvent::Status { status: "error".into() });
 }
 
@@ -337,8 +340,8 @@ fn handle_error(
 /// The returned `AsyncClient` can be cloned for publishing; pass the `EventLoop`
 /// to [`run_mqtt_task`] to drive the connection.
 pub fn setup_mqtt_client(config: &MqttConfig) -> (AsyncClient, EventLoop) {
-    let mut opts = MqttOptions::new("green-mqtt", &config.host, config.port);
-    let _ = opts.set_keep_alive(Duration::from_secs(30));
+    let mut opts = MqttOptions::new(&config.client_id, &config.host, config.port);
+    let _ = opts.set_keep_alive(Duration::from_secs(10));
     // Some topics (e.g. Frigate snapshots, zigbee2mqtt device lists) send large
     // payloads. Raise the limit to 1 MiB to avoid repeated reconnect loops.
     let _ = opts.set_max_packet_size(1024 * 1024, 1024 * 1024);
@@ -354,20 +357,20 @@ pub async fn run_mqtt_task(
     client: AsyncClient,
     mut eventloop: EventLoop,
     tx: broadcast::Sender<BrokerEvent>,
-    last_status: Arc<RwLock<String>>,
-    recent_messages: Arc<RwLock<VecDeque<MqttMessage>>>,
+    status_tx: Arc<watch::Sender<String>>,
+    recent_messages: Arc<TokioMutex<VecDeque<MqttMessage>>>,
 ) {
     loop {
         match eventloop.poll().await {
             Ok(MqttEvent::Incoming(Packet::Publish(publish))) => {
-                handle_publish(publish.topic, &publish.payload, config.scrollback, &tx, &recent_messages);
+                handle_publish(publish.topic, &publish.payload, config.scrollback, &tx, &recent_messages).await;
             }
             Ok(MqttEvent::Incoming(Packet::ConnAck(_))) => {
-                handle_conn_ack(&client, &config.topics, &last_status, &tx, &config.host, config.port).await;
+                handle_conn_ack(&client, &config.topics, &status_tx, &tx, &config.host, config.port).await;
             }
             Ok(_) => {}
             Err(err) => {
-                handle_error(&err, &last_status, &tx);
+                handle_error(&err, &status_tx, &tx);
                 tokio::time::sleep(Duration::from_secs(5)).await;
             }
         }
@@ -395,6 +398,11 @@ pub struct DeviceRow {
 ///
 /// On startup, purges any rows whose stored pattern no longer matches the current config
 /// so that pattern changes are automatically reflected without manual DB cleanup.
+///
+/// DB writes are debounced: the first message from each device is written immediately
+/// (to record `first_seen`), then subsequent writes are batched for up to
+/// [`DB_WRITE_INTERVAL`] so that high-frequency devices don't generate one query
+/// per message.
 pub async fn run_device_tracker_task(
     integrations: Arc<Vec<Integration>>,
     db: sqlx::PgPool,
@@ -406,13 +414,34 @@ pub async fn run_device_tracker_task(
         cleanup_stale_pattern(&db, &integration.display_name, &integration.pattern).await;
     }
 
+    // (integration, pattern, device_id) → (pending_count, last_write)
+    // `last_write = None` means the device has never been written to the DB.
+    let mut pending: HashMap<(String, String, String), (i64, Option<Instant>)> = HashMap::new();
+
     loop {
         match rx.recv().await {
             Ok(BrokerEvent::Message(ref msg)) => {
                 if let Some((integration, device_id)) =
                     match_integrations(&integrations, &msg.topic)
                 {
-                    upsert_device(&db, &integration.display_name, &integration.pattern, device_id).await;
+                    let key = (
+                        integration.display_name.clone(),
+                        integration.pattern.clone(),
+                        device_id.to_string(),
+                    );
+                    let (count, last_write) = pending.entry(key.clone()).or_insert((0, None));
+                    *count += 1;
+
+                    let should_write = match last_write {
+                        None => true,
+                        Some(t) => t.elapsed() >= DB_WRITE_INTERVAL,
+                    };
+                    if should_write {
+                        upsert_device(&db, &key.0, &key.1, &key.2, *count).await;
+                        *count = 0;
+                        *last_write = Some(Instant::now());
+                    }
+
                     if let Some(ref counter) = metrics {
                         counter.with_label_values(&[&integration.display_name, device_id]).inc();
                     }
@@ -429,6 +458,9 @@ pub async fn run_device_tracker_task(
         }
     }
 }
+
+/// How long to accumulate message counts before flushing to the database.
+const DB_WRITE_INTERVAL: Duration = Duration::from_secs(60);
 
 /// Delete rows for `integration` whose pattern no longer matches the current config.
 /// Called once at tracker startup so pattern changes self-heal on restart.
@@ -457,17 +489,18 @@ async fn cleanup_stale_pattern(db: &sqlx::PgPool, integration: &str, pattern: &s
     }
 }
 
-async fn upsert_device(db: &sqlx::PgPool, integration: &str, pattern: &str, device_id: &str) {
+async fn upsert_device(db: &sqlx::PgPool, integration: &str, pattern: &str, device_id: &str, count: i64) {
     let result = sqlx::query(
-        "INSERT INTO mqtt_devices (integration, pattern, device_id)
-         VALUES ($1, $2, $3)
+        "INSERT INTO mqtt_devices (integration, pattern, device_id, message_count)
+         VALUES ($1, $2, $3, $4)
          ON CONFLICT (integration, pattern, device_id)
          DO UPDATE SET last_seen = NOW(),
-                       message_count = mqtt_devices.message_count + 1",
+                       message_count = mqtt_devices.message_count + $4",
     )
     .bind(integration)
     .bind(pattern)
     .bind(device_id)
+    .bind(count)
     .execute(db)
     .await;
 
@@ -626,14 +659,15 @@ mod tests {
 
     #[test]
     fn mqtt_config_integrations_defaults_to_empty() {
-        let cfg: MqttConfig = toml::from_str("").unwrap();
+        let cfg: MqttConfig = toml::from_str(r#"client_id = "test""#).unwrap();
         assert!(cfg.integrations.is_empty());
     }
 
     #[test]
     fn mqtt_config_integrations_parses() {
         let cfg: MqttConfig = toml::from_str(
-            r#"[[integrations]]
+            r#"client_id = "test"
+               [[integrations]]
                pattern = "zigbee2mqtt/{device}/**"
                name = "Zigbee"
             "#,
@@ -648,25 +682,25 @@ mod tests {
 
     #[test]
     fn mqtt_config_default_host() {
-        let cfg: MqttConfig = toml::from_str("").unwrap();
+        let cfg: MqttConfig = toml::from_str(r#"client_id = "test""#).unwrap();
         assert_eq!(cfg.host, "localhost");
     }
 
     #[test]
     fn mqtt_config_default_port() {
-        let cfg: MqttConfig = toml::from_str("").unwrap();
+        let cfg: MqttConfig = toml::from_str(r#"client_id = "test""#).unwrap();
         assert_eq!(cfg.port, 1883);
     }
 
     #[test]
     fn mqtt_config_default_topics_is_wildcard() {
-        let cfg: MqttConfig = toml::from_str("").unwrap();
+        let cfg: MqttConfig = toml::from_str(r#"client_id = "test""#).unwrap();
         assert_eq!(cfg.topics, vec!["#"]);
     }
 
     #[test]
     fn mqtt_config_default_credentials_are_none() {
-        let cfg: MqttConfig = toml::from_str("").unwrap();
+        let cfg: MqttConfig = toml::from_str(r#"client_id = "test""#).unwrap();
         assert!(cfg.username.is_none());
         assert!(cfg.password.is_none());
     }
@@ -674,6 +708,7 @@ mod tests {
     #[test]
     fn mqtt_config_explicit_values() {
         let cfg: MqttConfig = toml::from_str(r#"
+            client_id = "my-client"
             host = "broker.example.com"
             port = 8883
             username = "user"
@@ -760,22 +795,24 @@ mod tests {
     #[tokio::test]
     async fn conn_ack_sets_status_connected_and_broadcasts() {
         let (tx, mut rx) = broadcast::channel(16);
-        let last_status = Arc::new(RwLock::new("connecting".to_string()));
-        handle_conn_ack(&MockSubscriber::default(), &[], &last_status, &tx, "h", 1883).await;
-        assert_eq!(&*last_status.read().unwrap(), "connected");
+        let (status_tx, _) = watch::channel("connecting".to_string());
+        let status_tx = Arc::new(status_tx);
+        handle_conn_ack(&MockSubscriber::default(), &[], &status_tx, &tx, "h", 1883).await;
+        assert_eq!(*status_tx.borrow(), "connected");
         assert!(matches!(rx.try_recv(), Ok(BrokerEvent::Status { status }) if status == "connected"));
     }
 
     #[tokio::test]
     async fn conn_ack_subscribes_to_all_configured_topics() {
         let (tx, _rx) = broadcast::channel(16);
-        let last_status = Arc::new(RwLock::new("connecting".to_string()));
+        let (status_tx, _) = watch::channel("connecting".to_string());
+        let status_tx = Arc::new(status_tx);
         let subscribed = Arc::new(std::sync::Mutex::new(vec![]));
         let mock = MockSubscriber { subscribed: Arc::clone(&subscribed) };
         handle_conn_ack(
             &mock,
             &["home/#".to_string(), "sensors/+".to_string()],
-            &last_status,
+            &status_tx,
             &tx,
             "h",
             1883,
@@ -784,12 +821,12 @@ mod tests {
         assert_eq!(*subscribed.lock().unwrap(), vec!["home/#", "sensors/+"]);
     }
 
-    #[test]
-    fn publish_stored_in_buffer_and_broadcast() {
+    #[tokio::test]
+    async fn publish_stored_in_buffer_and_broadcast() {
         let (tx, mut rx) = broadcast::channel(16);
-        let recent = Arc::new(RwLock::new(VecDeque::new()));
-        handle_publish("home/temp".to_string(), b"21.5", 200, &tx, &recent);
-        let buf = recent.read().unwrap();
+        let recent = Arc::new(TokioMutex::new(VecDeque::new()));
+        handle_publish("home/temp".to_string(), b"21.5", 200, &tx, &recent).await;
+        let buf = recent.lock().await;
         assert_eq!(buf.len(), 1);
         assert_eq!(buf[0].topic, "home/temp");
         assert_eq!(buf[0].payload, "21.5");
@@ -797,15 +834,15 @@ mod tests {
         assert!(matches!(rx.try_recv(), Ok(BrokerEvent::Message(m)) if m.topic == "home/temp"));
     }
 
-    #[test]
-    fn publish_caps_buffer_at_scrollback_limit() {
+    #[tokio::test]
+    async fn publish_caps_buffer_at_scrollback_limit() {
         let (tx, _rx) = broadcast::channel(256);
-        let recent = Arc::new(RwLock::new(VecDeque::new()));
+        let recent = Arc::new(TokioMutex::new(VecDeque::new()));
         let cap = 3;
         for i in 0..5u8 {
-            handle_publish(format!("t/{i}"), &[i], cap, &tx, &recent);
+            handle_publish(format!("t/{i}"), &[i], cap, &tx, &recent).await;
         }
-        let buf = recent.read().unwrap();
+        let buf = recent.lock().await;
         assert_eq!(buf.len(), cap);
         assert_eq!(buf[0].topic, "t/2");
         assert_eq!(buf[cap - 1].topic, "t/4");
@@ -814,12 +851,13 @@ mod tests {
     #[test]
     fn error_sets_status_error_and_broadcasts() {
         let (tx, mut rx) = broadcast::channel(16);
-        let last_status = Arc::new(RwLock::new("connected".to_string()));
+        let (status_tx, _) = watch::channel("connected".to_string());
+        let status_tx = Arc::new(status_tx);
         let err = rumqttc::ConnectionError::Io(std::io::Error::from(
             std::io::ErrorKind::ConnectionReset,
         ));
-        handle_error(&err, &last_status, &tx);
-        assert_eq!(&*last_status.read().unwrap(), "error");
+        handle_error(&err, &status_tx, &tx);
+        assert_eq!(*status_tx.borrow(), "error");
         assert!(matches!(rx.try_recv(), Ok(BrokerEvent::Status { status }) if status == "error"));
     }
 
@@ -1130,8 +1168,8 @@ mod tests {
         }]);
         let mqtt_state = Arc::new(MqttState {
             tx,
-            last_status: Arc::new(RwLock::new("connecting".to_string())),
-            recent_messages: Arc::new(RwLock::new(VecDeque::new())),
+            status_tx: Arc::new(watch::channel("connecting".to_string()).0),
+            recent_messages: Arc::new(TokioMutex::new(VecDeque::new())),
             prometheus: None,
             integrations: Arc::new(integrations),
             publish_client,
@@ -1150,11 +1188,12 @@ mod tests {
             certificate: Arc::from(""),
             breaker_content,
             breaker_detail_store: store,
-            index: Index::new(Routes::default(), false, false, false).await.unwrap(),
+            index: Index::new(Routes::default(), false, false, false, false).await.unwrap(),
             tailscale_socket: Arc::from(Path::new("/tmp/fake.sock")),
             notes_store: None,
             auth_state: Some(Arc::new(auth_state)),
             mqtt_state: Some(mqtt_state),
+            log_config: None,
         }
     }
 
@@ -1282,8 +1321,8 @@ mod tests {
         messages_total.with_label_values(&["zigbee2mqtt", "0xABCD"]).inc();
         let mqtt_state = Arc::new(MqttState {
             tx,
-            last_status: Arc::new(RwLock::new("connecting".to_string())),
-            recent_messages: Arc::new(RwLock::new(VecDeque::new())),
+            status_tx: Arc::new(watch::channel("connecting".to_string()).0),
+            recent_messages: Arc::new(TokioMutex::new(VecDeque::new())),
             prometheus: Some(PrometheusState { registry, messages_total }),
             integrations: Arc::new(vec![]),
             publish_client,
@@ -1296,11 +1335,12 @@ mod tests {
             certificate: Arc::from(""),
             breaker_content: Arc::new(BreakerContent::new(store.as_ref())),
             breaker_detail_store: store,
-            index: Index::new(Routes::default(), false, false, false).await.unwrap(),
+            index: Index::new(Routes::default(), false, false, false, false).await.unwrap(),
             tailscale_socket: Arc::from(Path::new("/tmp/fake.sock")),
             notes_store: None,
             auth_state: None,
             mqtt_state: Some(mqtt_state),
+            log_config: None,
         };
         let app = Router::new()
             .route("/metrics", get(metrics_route))
@@ -1497,18 +1537,8 @@ pub async fn mqtt_stream_route(
     let mqtt = state.mqtt_state.as_ref().ok_or(Error::MqttNotConfigured)?;
     let rx = mqtt.tx.subscribe();
 
-    let current_status = mqtt
-        .last_status
-        .read()
-        .expect("last_status poisoned")
-        .clone();
-    let backlog: Vec<MqttMessage> = mqtt
-        .recent_messages
-        .read()
-        .expect("recent_messages poisoned")
-        .iter()
-        .cloned()
-        .collect();
+    let current_status = mqtt.status_tx.borrow().clone();
+    let backlog: Vec<MqttMessage> = mqtt.recent_messages.lock().await.iter().cloned().collect();
 
     Ok(Sse::new(build_sse_stream(current_status, backlog, rx)).keep_alive(KeepAlive::default()))
 }
@@ -1567,8 +1597,8 @@ pub async fn device_messages_route(
 
     let messages: Vec<MqttMessage> = mqtt
         .recent_messages
-        .read()
-        .expect("recent_messages poisoned")
+        .lock()
+        .await
         .iter()
         .filter(|msg| {
             match_topic(&integration.segments, &msg.topic).as_deref()

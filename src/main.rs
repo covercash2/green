@@ -26,7 +26,7 @@
 use std::{
     net::SocketAddr,
     path::{Path, PathBuf},
-    sync::{Arc, RwLock},
+    sync::Arc,
 };
 
 use axum::{extract::State, routing::get};
@@ -45,6 +45,7 @@ mod breaker_detail;
 mod error;
 mod index;
 mod io;
+mod logs;
 mod mqtt;
 mod notes;
 mod qr;
@@ -144,6 +145,26 @@ pub enum Route {
     #[serde(rename = "/metrics")]
     #[strum(serialize = "/metrics")]
     Metrics,
+
+    /// App trace log viewer page (GM only; dev only).
+    #[serde(rename = "/logs/app")]
+    #[strum(serialize = "/logs/app")]
+    LogsApp,
+
+    /// Error / build log viewer page (GM only; dev only).
+    #[serde(rename = "/logs/errors")]
+    #[strum(serialize = "/logs/errors")]
+    LogsErrors,
+
+    /// SSE stream of app trace log lines (GM only; dev only).
+    #[serde(rename = "/api/logs/app/stream")]
+    #[strum(serialize = "/api/logs/app/stream")]
+    LogsAppStream,
+
+    /// SSE stream of error log lines (GM only; dev only).
+    #[serde(rename = "/api/logs/errors/stream")]
+    #[strum(serialize = "/api/logs/errors/stream")]
+    LogsErrorsStream,
 }
 
 impl Route {
@@ -172,6 +193,8 @@ pub struct ServerState {
     pub auth_state: Option<Arc<auth::AuthState>>,
     /// MQTT broadcast state, or `None` if mqtt is not configured.
     pub mqtt_state: Option<Arc<mqtt::MqttState>>,
+    /// Log file paths for the dev log viewer, or `None` if not configured.
+    pub log_config: Option<logs::LogConfig>,
 }
 
 impl ServerState {
@@ -197,7 +220,8 @@ impl ServerState {
         let has_notes = notes_store.is_some();
         let has_mqtt = config.mqtt.is_some();
         let has_mqtt_devices = config.mqtt.as_ref().map_or(false, |m| !m.integrations.is_empty());
-        let index = Index::new(config.routes.clone(), has_notes, has_mqtt, has_mqtt_devices).await?;
+        let has_logs = config.log_config.is_some();
+        let index = Index::new(config.routes.clone(), has_notes, has_mqtt, has_mqtt_devices, has_logs).await?;
 
         let store = Arc::new(BreakerStore::from_data(breaker_data)?);
         let breaker_content = Arc::new(breaker::BreakerContent::new(store.as_ref()));
@@ -212,16 +236,17 @@ impl ServerState {
             let (tx, _) = tokio::sync::broadcast::channel(256);
             let task_tx = tx.clone();
             let task_config = mqtt_config.clone();
-            let last_status = Arc::new(RwLock::new("connecting".to_string()));
-            let task_last_status = Arc::clone(&last_status);
-            let recent_messages = Arc::new(RwLock::new(
+            let (status_tx, _) = tokio::sync::watch::channel("connecting".to_string());
+            let status_tx = Arc::new(status_tx);
+            let task_status_tx = Arc::clone(&status_tx);
+            let recent_messages = Arc::new(tokio::sync::Mutex::new(
                 std::collections::VecDeque::with_capacity(mqtt_config.scrollback),
             ));
             let task_recent = Arc::clone(&recent_messages);
             let (mqtt_client, eventloop) = mqtt::setup_mqtt_client(mqtt_config);
             let publish_client = mqtt_client.clone();
             let _ = tokio::spawn(async move {
-                mqtt::run_mqtt_task(task_config, mqtt_client, eventloop, task_tx, task_last_status, task_recent).await;
+                mqtt::run_mqtt_task(task_config, mqtt_client, eventloop, task_tx, task_status_tx, task_recent).await;
                 tracing::error!("mqtt task exited unexpectedly");
             });
 
@@ -258,7 +283,7 @@ impl ServerState {
 
             Some(Arc::new(mqtt::MqttState {
                 tx,
-                last_status,
+                status_tx,
                 recent_messages,
                 prometheus,
                 integrations: parsed_integrations,
@@ -277,6 +302,7 @@ impl ServerState {
             notes_store,
             auth_state,
             mqtt_state,
+            log_config: config.log_config.clone(),
         })
     }
 }
@@ -308,6 +334,10 @@ fn build_router(state: ServerState) -> axum::Router {
         .route(Route::MqttDeviceMessages.as_str(), get(mqtt::device_messages_route))
         .route(Route::MqttPublish.as_str(), axum::routing::post(mqtt::publish_route))
         .route(Route::Metrics.as_str(), get(mqtt::metrics_route))
+        .route(Route::LogsApp.as_str(), get(logs::logs_app_route))
+        .route(Route::LogsErrors.as_str(), get(logs::logs_errors_route))
+        .route(Route::LogsAppStream.as_str(), get(logs::logs_app_stream_route))
+        .route(Route::LogsErrorsStream.as_str(), get(logs::logs_errors_stream_route))
         .nest_service("/assets", ServeDir::new("assets"))
         .layer(
             TraceLayer::new_for_http()
@@ -359,6 +389,9 @@ pub struct Config {
     /// MQTT broker configuration. If absent, the MQTT page returns 404.
     #[serde(default)]
     pub mqtt: Option<mqtt::MqttConfig>,
+    /// Log file paths for the dev log viewer. If absent, log routes return 404.
+    #[serde(default)]
+    pub log_config: Option<logs::LogConfig>,
 }
 
 impl Config {

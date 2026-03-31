@@ -123,8 +123,10 @@
           }
         );
 
-        # Fixed-output derivation: pre-fetch all JS/Deno dependencies.
+        # Fixed-output derivation: pre-fetch all JS/Deno dependencies into DENO_DIR.
         # Network access is allowed here; the output hash pins exact contents.
+        # deno.json sets nodeModulesDir = "none" so all packages (JSR and npm) land
+        # in DENO_DIR; no node_modules directory is created or needed.
         #
         # To update after bumping deps in deno.json / deno.lock:
         #   nix build .#packages.x86_64-linux.deno-deps --rebuild 2>&1 | grep "got:"
@@ -137,7 +139,8 @@
             fileset = nixpkgs.lib.fileset.unions [
               ./deno.json
               ./deno.lock
-              ./package.json
+              ./src/js
+              ./test/js
             ];
           };
 
@@ -155,12 +158,11 @@
           buildPhase = ''
             export HOME=$TMPDIR
             export DENO_DIR=$TMPDIR/deno-dir
-            deno install --frozen
+            deno cache --frozen src/js/*.ts test/js/*.test.ts
           '';
 
           installPhase = ''
             mkdir -p $out
-            cp -r node_modules $out/node_modules
             cp -r $DENO_DIR $out/deno-dir
           '';
         };
@@ -184,7 +186,6 @@
             cp -r $src/. .
             chmod -R +w .
 
-            cp -r ${denoPackageCache}/node_modules ./node_modules
             export DENO_DIR=$TMPDIR/deno-dir
             cp -r ${denoPackageCache}/deno-dir $DENO_DIR
             chmod -R +w $DENO_DIR
@@ -366,6 +367,10 @@
                     default = null;
                     description = "MQTT broker username";
                   };
+                  clientId = mkOption {
+                    type = types.str;
+                    description = "MQTT client identifier; must be unique per broker connection";
+                  };
                   integrations = mkOption {
                     description = "Topic pattern definitions for device tracking.";
                     default = [];
@@ -470,6 +475,7 @@
               [mqtt]
               host = "${cfg.mqtt.host}"
               port = ${toString cfg.mqtt.port}
+              client_id = "${cfg.mqtt.clientId}"
               ${lib.optionalString (cfg.mqtt.username != null) "username = \"${cfg.mqtt.username}\""}
 
               ${lib.concatMapStringsSep "\n" (i: ''
