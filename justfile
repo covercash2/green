@@ -21,7 +21,7 @@ test:
 
 # compile TS → assets/js/ (commit the output)
 build-js:
-  deno bundle --platform=browser --minify --outdir assets/js src/js/auth-login.ts src/js/auth-register.ts src/js/mqtt.ts src/js/mqtt-devices.ts src/js/logs.ts src/js/services.ts
+  deno bundle --platform=browser --minify --outdir assets/js src/js/auth-login.ts src/js/auth-register.ts src/js/mqtt.ts src/js/mqtt-devices.ts src/js/logs.ts src/js/services.ts src/js/nav.ts
 
 # type-check TS source files
 check-js:
@@ -35,12 +35,16 @@ js-test:
 js-coverage:
   deno test --no-check --coverage=.deno-coverage test/js/*.test.ts
 
+# check CSS class coverage: every static class in a template must be defined in its loaded CSS
+css-check:
+  deno test --no-check --allow-read test/css/
+
 # lint JS/TS with biome
 lint-js:
   biome lint src/js/ test/js/
 
-# run all tests (Rust + JS)
-test-all: test js-coverage
+# run all tests (Rust + JS + CSS)
+test-all: test js-coverage css-check
 
 # Minimum acceptable line coverage percentage.
 # Changing this here affects both `just coverage` and `nix flake check`.
@@ -82,6 +86,7 @@ _pre-push-checks:
   just coverage
   deno check src/js/
   just js-test
+  just css-check
 
 ### misc scripts
 

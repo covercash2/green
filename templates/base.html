@@ -5,8 +5,10 @@
     <title>{% block title %}green{% endblock %}</title>
 
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="format-detection" content="telephone=no">
     <meta name="theme-color" content="#050505">
-    <link rel="stylesheet" href="/assets/css/l33t.css?v={{ version }}">
+    <link rel="stylesheet" href="/assets/css/base.css?v={{ version }}">
+    {% block styles %}{% endblock %}
     <link rel="apple-touch-icon" sizes="180x180" href="/assets/favicon/apple-touch-icon.png">
     <link rel="icon" type="image/png" sizes="32x32" href="/assets/favicon/favicon-32x32.png">
     <link rel="icon" type="image/png" sizes="16x16" href="/assets/favicon/favicon-16x16.png">
@@ -15,6 +17,7 @@
 <body class="leet-theme">
     <div class="leet-container">
         <nav class="leet-nav">
+            <button class="nav-hamburger" id="nav-hamburger" aria-label="menu" aria-expanded="false" aria-controls="nav-drawer">&#9776;</button>
         {% if let Some(user) = auth_user %}
             <span class="leet-nav-user">{{ user.username }}</span>
             <form action="/auth/logout" method="post" class="leet-nav-form">
@@ -24,9 +27,20 @@
             <a href="/auth/login" class="leet-link">sign in</a>
         {% endif %}
         </nav>
+
+        <div class="nav-drawer" id="nav-drawer" aria-hidden="true">
+            <nav class="nav-drawer-links">
+            {% for link in nav_links %}
+                <a href="{{ link.href }}" class="nav-drawer-link">{{ link.name }}</a>
+            {% endfor %}
+            </nav>
+        </div>
+        <div class="nav-overlay" id="nav-overlay"></div>
+
         {% block content %}{% endblock %}
         <footer class="leet-footer">v{{ version }}</footer>
     </div>
 {% block scripts %}{% endblock %}
+<script type="module" src="/assets/js/nav.js?v={{ version }}"></script>
 </body>
 </html>

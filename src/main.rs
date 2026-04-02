@@ -37,7 +37,7 @@ use route::Routes;
 use serde::{Deserialize, Serialize};
 use tower_http::{services::ServeDir, trace::TraceLayer};
 
-use crate::{error::Error, index::Index};
+use crate::{error::Error, index::{Index, NavLink}};
 
 mod auth;
 mod breaker;
@@ -208,6 +208,8 @@ pub struct ServerState {
     pub log_config: Option<logs::LogConfig>,
     /// Systemd units to monitor, or `None` if not configured.
     pub systemd_config: Option<services::SystemdConfig>,
+    /// Site-wide navigation links, built at startup from enabled features.
+    pub nav_links: Arc<[NavLink]>,
 }
 
 impl ServerState {
@@ -234,8 +236,22 @@ impl ServerState {
         let has_mqtt = config.mqtt.is_some();
         let has_mqtt_devices = config.mqtt.as_ref().map_or(false, |m| !m.integrations.is_empty());
         let has_logs = config.log_config.is_some();
-        let has_services = config.systemd.is_some();
-        let index = Index::new(config.routes.clone(), has_notes, has_mqtt, has_mqtt_devices, has_logs, has_services).await?;
+        let service_urls: std::collections::HashSet<String> = config
+            .systemd
+            .as_ref()
+            .map(|s| s.units.iter().filter_map(|u| u.url.clone()).collect())
+            .unwrap_or_default();
+        let nav_links: Arc<[NavLink]> = {
+            let mut links = vec![
+                NavLink { name: "home".into(), href: "/".into() },
+            ];
+            if has_mqtt { links.push(NavLink { name: "mqtt".into(), href: "/mqtt".into() }); }
+            if has_notes { links.push(NavLink { name: "notes".into(), href: "/notes".into() }); }
+            links.push(NavLink { name: "breaker".into(), href: "/breaker".into() });
+            links.push(NavLink { name: "tailscale".into(), href: "/tailscale".into() });
+            links.into()
+        };
+        let index = Index::new(config.routes.clone(), has_notes, has_mqtt, has_mqtt_devices, has_logs, &service_urls, config.logo_url.clone(), nav_links.clone()).await?;
 
         let store = Arc::new(BreakerStore::from_data(breaker_data)?);
         let breaker_content = Arc::new(breaker::BreakerContent::new(store.as_ref()));
@@ -318,6 +334,7 @@ impl ServerState {
             mqtt_state,
             log_config: config.log_config.clone(),
             systemd_config: config.systemd.clone(),
+            nav_links: nav_links.clone(),
         })
     }
 }
@@ -413,6 +430,9 @@ pub struct Config {
     /// services route returns 404.
     #[serde(default)]
     pub systemd: Option<services::SystemdConfig>,
+    /// Optional URL for a logo image shown on the index page.
+    #[serde(default)]
+    pub logo_url: Option<String>,
 }
 
 impl Config {

@@ -1,6 +1,6 @@
 //! Dev log viewer: tail `logs.ndjson` and `errors.log` over SSE.
 
-use std::{convert::Infallible, path::PathBuf, time::Duration};
+use std::{convert::Infallible, path::PathBuf, sync::Arc, time::Duration};
 
 use askama::Template;
 use axum::{
@@ -17,6 +17,7 @@ use tokio::io::{AsyncBufReadExt, AsyncSeekExt, BufReader};
 use crate::{
     auth::{AuthUserInfo, GmUser},
     error::Error,
+    index::NavLink,
     ServerState,
 };
 
@@ -39,6 +40,7 @@ pub struct LogConfig {
 struct LogsAppPage {
     version: &'static str,
     auth_user: Option<AuthUserInfo>,
+    nav_links: Arc<[NavLink]>,
 }
 
 #[derive(Template)]
@@ -46,30 +48,31 @@ struct LogsAppPage {
 struct LogsErrorsPage {
     version: &'static str,
     auth_user: Option<AuthUserInfo>,
+    nav_links: Arc<[NavLink]>,
 }
 
 /// GET `/logs/app` — renders the app trace log page (GM only).
 pub async fn logs_app_route(
     user: GmUser,
-    State(_state): State<ServerState>,
+    State(state): State<ServerState>,
 ) -> Result<Html<String>, Error> {
     let auth_user = Some(AuthUserInfo {
         username: user.0.username.clone(),
         role: user.0.role.clone(),
     });
-    Ok(Html(LogsAppPage { version: crate::VERSION, auth_user }.render()?))
+    Ok(Html(LogsAppPage { version: crate::VERSION, auth_user, nav_links: state.nav_links.clone() }.render()?))
 }
 
 /// GET `/logs/errors` — renders the error log page (GM only).
 pub async fn logs_errors_route(
     user: GmUser,
-    State(_state): State<ServerState>,
+    State(state): State<ServerState>,
 ) -> Result<Html<String>, Error> {
     let auth_user = Some(AuthUserInfo {
         username: user.0.username.clone(),
         role: user.0.role.clone(),
     });
-    Ok(Html(LogsErrorsPage { version: crate::VERSION, auth_user }.render()?))
+    Ok(Html(LogsErrorsPage { version: crate::VERSION, auth_user, nav_links: state.nav_links.clone() }.render()?))
 }
 
 /// Read the last `n` non-empty lines from a file, returning an empty vec on

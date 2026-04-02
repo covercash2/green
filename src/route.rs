@@ -10,4 +10,6 @@ pub struct Routes(HashMap<String, RouteInfo>);
 pub struct RouteInfo {
     pub url: String,
     pub description: String,
+    #[serde(default)]
+    pub icon_url: Option<String>,
 }

@@ -11,6 +11,8 @@ export interface ServiceStatus {
     pid: number | null;
     since: string | null;
     health: "healthy" | "degraded" | "inactive" | "failed";
+    icon_url: string | null;
+    url: string | null;
 }
 
 const HEALTH_CLASS: Record<ServiceStatus["health"], string> = {
@@ -39,10 +41,16 @@ export function renderCard(svc: ServiceStatus): string {
     const sinceRow = svc.since != null
         ? `<span class="svc-key">since</span><span class="svc-val svc-timestamp">${escHtml(svc.since)}</span>`
         : "";
+    const iconSrc = svc.icon_url ?? "/assets/img/service.svg";
+    const iconHtml = `<img src="${escHtml(iconSrc)}" alt="" class="svc-icon" aria-hidden="true" width="18" height="18">`;
+    const nameHtml = svc.url
+        ? `<a href="${escHtml(svc.url)}" class="svc-name svc-link">${escHtml(svc.name)}</a>`
+        : `<span class="svc-name">${escHtml(svc.name)}</span>`;
     return `
 <div class="svc-card ${healthClass}">
   <div class="svc-card-header">
-    <span class="svc-name">${escHtml(svc.name)}</span>
+    ${iconHtml}
+    ${nameHtml}
     <span class="svc-badge ${healthClass}">${label}</span>
   </div>
   ${descRow}

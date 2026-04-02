@@ -12,6 +12,8 @@ function svc(overrides: Partial<ServiceStatus> = {}): ServiceStatus {
         pid: 1234,
         since: "Sun 2026-03-29 10:48:26 CDT",
         health: "healthy",
+        icon_url: null,
+        url: null,
         ...overrides,
     };
 }
@@ -67,6 +69,29 @@ Deno.test("renderCard: escapes HTML in name and description", () => {
     assertEquals(html.includes("<script>"), false);
     assertEquals(html.includes("&lt;evil&gt;"), true);
     assertEquals(html.includes("&lt;script&gt;"), true);
+});
+
+Deno.test("renderCard: name is a link when url is set", () => {
+    const html = renderCard(svc({ url: "https://example.com" }));
+    assertEquals(html.includes(`href="https://example.com"`), true);
+    assertEquals(html.includes("svc-link"), true);
+});
+
+Deno.test("renderCard: name is a span when url is null", () => {
+    const html = renderCard(svc({ url: null }));
+    assertEquals(html.includes(`href=`), false);
+});
+
+Deno.test("renderCard: renders icon img when icon_url is set", () => {
+    const html = renderCard(svc({ icon_url: "https://example.com/icon.svg" }));
+    assertEquals(html.includes(`src="https://example.com/icon.svg"`), true);
+    assertEquals(html.includes("svc-icon"), true);
+});
+
+Deno.test("renderCard: uses fallback icon when icon_url is null", () => {
+    const html = renderCard(svc({ icon_url: null }));
+    assertEquals(html.includes("svc-icon"), true);
+    assertEquals(html.includes("/assets/img/service.svg"), true);
 });
 
 Deno.test("escHtml: encodes all five special characters", () => {

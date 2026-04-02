@@ -1,4 +1,5 @@
 port = 10000
+logo_url = "/assets/favicon/android-chrome-512x512.png"
 ca_path = "fixtures/testCA.pem"
 log_level = "debug,sqlx=warn"
 vault_path = "fixtures/vault"
@@ -37,12 +38,69 @@ name = "Frigate"
 pattern = "zwavejs/{device}/**"
 name = "Z-Wave"
 
-[systemd]
-units = ["postgresql", "mosquitto", "caddy"]
+[[systemd.units]]
+name = "postgresql"
+icon_url = "https://cdn.simpleicons.org/postgresql"
+url = "https://db.green.chrash.net"
+
+[[systemd.units]]
+name = "mosquitto"
+icon_url = "https://cdn.simpleicons.org/eclipsemosquitto"
+
+[[systemd.units]]
+name = "caddy"
+icon_url = "https://cdn.simpleicons.org/caddy"
+
+[[systemd.units]]
+name = "podman-homeassistant"
+icon_url = "https://cdn.simpleicons.org/homeassistant"
+url = "https://homeassistant.green.chrash.net"
+
+[[systemd.units]]
+name = "zigbee2mqtt"
+icon_url = "https://cdn.simpleicons.org/zigbee2mqtt"
+
+[[systemd.units]]
+name = "ultron"
+url = "https://ultron.green.chrash.net"
+
+[[systemd.units]]
+name = "tailscaled"
+icon_url = "https://cdn.simpleicons.org/tailscale"
+
+[[systemd.units]]
+name = "foundryvtt"
+icon_url = "https://cdn.simpleicons.org/foundryvirtualtabletop"
+url = "https://foundry.green.chrash.net"
+
+[[systemd.units]]
+name = "adguardhome"
+icon_url = "https://cdn.simpleicons.org/adguard"
+url = "https://adguard.green.chrash.net"
+
+[[systemd.units]]
+name = "prometheus"
+icon_url = "https://cdn.simpleicons.org/prometheus"
+
+[[systemd.units]]
+name = "jellyfin"
+icon_url = "https://cdn.simpleicons.org/jellyfin"
+url = "https://jellyfin.green.chrash.net"
+
+[[systemd.units]]
+name = "grafana"
+icon_url = "https://cdn.simpleicons.org/grafana"
+url = "https://grafana.green.chrash.net"
+
+[[systemd.units]]
+name = "podman-frigate"
+icon_url = "https://cdn.simpleicons.org/frigate"
+url = "https://frigate.green.chrash.net"
 
 [routes.foundry]
 url = "foundry.green.chrash.net"
 description = "Foundry VTT for D&D games"
+icon_url = "https://cdn.simpleicons.org/foundryvirtualtabletop"
 
 [routes.ultron]
 url = "ultron.green.chrash.net"
@@ -51,19 +109,24 @@ description = "Ultron chat server"
 [routes.adguard]
 url = "adguard.green.chrash.net"
 description = "AdGuard Home DNS server and ad blocking"
+icon_url = "https://cdn.simpleicons.org/adguard"
 
 [routes.grafana]
 url = "grafana.green.chrash.net"
 description = "Grafana for monitoring and visualization"
+icon_url = "https://cdn.simpleicons.org/grafana"
 
 [routes.frigate]
 url = "frigate.green.chrash.net"
 description = "Frigate NVR for camera surveillance"
+icon_url = "https://cdn.simpleicons.org/frigate"
 
 [routes.postgres]
 url = "db.green.chrash.net"
 description = "PostgreSQL database server"
+icon_url = "https://cdn.simpleicons.org/postgresql"
 
 [routes.homeassistant]
 url = "homeassistant.green.chrash.net"
 description = "Home Assistant for home automation"
+icon_url = "https://cdn.simpleicons.org/homeassistant"
