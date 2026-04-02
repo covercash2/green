@@ -21,7 +21,7 @@ test:
 
 # compile TS → assets/js/ (commit the output)
 build-js:
-  deno bundle --platform=browser --minify --outdir assets/js src/js/auth-login.ts src/js/auth-register.ts src/js/mqtt.ts src/js/mqtt-devices.ts src/js/logs.ts
+  deno bundle --platform=browser --minify --outdir assets/js src/js/auth-login.ts src/js/auth-register.ts src/js/mqtt.ts src/js/mqtt-devices.ts src/js/logs.ts src/js/services.ts
 
 # type-check TS source files
 check-js:

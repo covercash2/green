@@ -937,7 +937,7 @@ mod tests {
         let store = Arc::new(BreakerStore::from_data(data).unwrap());
         let breaker_content = Arc::new(BreakerContent::new(store.as_ref()));
         let breaker_detail_store: Arc<dyn BreakerDetailStore> = store;
-        let index = Index::new(Routes::default(), false, false, false, false).await.unwrap();
+        let index = Index::new(Routes::default(), false, false, false, false, false).await.unwrap();
 
         ServerState {
             certificate: Arc::from("fake-cert"),
@@ -949,6 +949,7 @@ mod tests {
             auth_state: Some(Arc::new(auth_state)),
             mqtt_state: None,
             log_config: None,
+            systemd_config: None,
         }
     }
 

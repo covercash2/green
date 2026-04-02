@@ -37,6 +37,9 @@ name = "Frigate"
 pattern = "zwavejs/{device}/**"
 name = "Z-Wave"
 
+[systemd]
+units = ["postgresql", "mosquitto", "caddy"]
+
 [routes.foundry]
 url = "foundry.green.chrash.net"
 description = "Foundry VTT for D&D games"
