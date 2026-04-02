@@ -50,6 +50,7 @@ mod mqtt;
 mod notes;
 mod qr;
 mod route;
+mod services;
 mod tailscale;
 
 /// Application version string (semver + git hash).
@@ -165,6 +166,16 @@ pub enum Route {
     #[serde(rename = "/api/logs/errors/stream")]
     #[strum(serialize = "/api/logs/errors/stream")]
     LogsErrorsStream,
+
+    /// Systemd service status dashboard (GM only).
+    #[serde(rename = "/services")]
+    #[strum(serialize = "/services")]
+    Services,
+
+    /// JSON API returning current status of all monitored units (GM only).
+    #[serde(rename = "/api/services")]
+    #[strum(serialize = "/api/services")]
+    ServicesApi,
 }
 
 impl Route {
@@ -195,6 +206,8 @@ pub struct ServerState {
     pub mqtt_state: Option<Arc<mqtt::MqttState>>,
     /// Log file paths for the dev log viewer, or `None` if not configured.
     pub log_config: Option<logs::LogConfig>,
+    /// Systemd units to monitor, or `None` if not configured.
+    pub systemd_config: Option<services::SystemdConfig>,
 }
 
 impl ServerState {
@@ -221,7 +234,8 @@ impl ServerState {
         let has_mqtt = config.mqtt.is_some();
         let has_mqtt_devices = config.mqtt.as_ref().map_or(false, |m| !m.integrations.is_empty());
         let has_logs = config.log_config.is_some();
-        let index = Index::new(config.routes.clone(), has_notes, has_mqtt, has_mqtt_devices, has_logs).await?;
+        let has_services = config.systemd.is_some();
+        let index = Index::new(config.routes.clone(), has_notes, has_mqtt, has_mqtt_devices, has_logs, has_services).await?;
 
         let store = Arc::new(BreakerStore::from_data(breaker_data)?);
         let breaker_content = Arc::new(breaker::BreakerContent::new(store.as_ref()));
@@ -303,6 +317,7 @@ impl ServerState {
             auth_state,
             mqtt_state,
             log_config: config.log_config.clone(),
+            systemd_config: config.systemd.clone(),
         })
     }
 }
@@ -338,6 +353,8 @@ fn build_router(state: ServerState) -> axum::Router {
         .route(Route::LogsErrors.as_str(), get(logs::logs_errors_route))
         .route(Route::LogsAppStream.as_str(), get(logs::logs_app_stream_route))
         .route(Route::LogsErrorsStream.as_str(), get(logs::logs_errors_stream_route))
+        .route(Route::Services.as_str(), get(services::services_route))
+        .route(Route::ServicesApi.as_str(), get(services::services_api_route))
         .nest_service("/assets", ServeDir::new("assets"))
         .layer(
             TraceLayer::new_for_http()
@@ -392,6 +409,10 @@ pub struct Config {
     /// Log file paths for the dev log viewer. If absent, log routes return 404.
     #[serde(default)]
     pub log_config: Option<logs::LogConfig>,
+    /// Systemd units to monitor on the services dashboard. If absent, the
+    /// services route returns 404.
+    #[serde(default)]
+    pub systemd: Option<services::SystemdConfig>,
 }
 
 impl Config {

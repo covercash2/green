@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+
+{% block title %}services{% endblock %}
+
+{% block content %}
+<a href="/" class="leet-link">&larr; back</a>
+<h1 class="leet-h1">services</h1>
+
+<div class="svc-toolbar">
+    <span class="svc-count">{{ services.len() }} units</span>
+    <span class="svc-updated">updated <span id="svc-last-updated">now</span></span>
+    <button class="leet-btn svc-refresh-btn" id="svc-refresh">refresh</button>
+</div>
+
+<div class="svc-grid" id="svc-grid">
+{% for svc in services %}
+<div class="svc-card {{ svc.health.css_class() }}">
+    <div class="svc-card-header">
+        <span class="svc-name">{{ svc.name }}</span>
+        <span class="svc-badge {{ svc.health.css_class() }}">{{ svc.health.label() }}</span>
+    </div>
+    {% if !svc.description.is_empty() %}
+    <div class="svc-description">{{ svc.description }}</div>
+    {% endif %}
+    <div class="svc-fields">
+        <span class="svc-key">state</span>
+        <span class="svc-val">{{ svc.active_state }}/{{ svc.sub_state }}</span>
+        {% if let Some(pid) = svc.pid %}
+        <span class="svc-key">pid</span>
+        <span class="svc-val">{{ pid }}</span>
+        {% endif %}
+        {% if let Some(since) = svc.since.as_ref() %}
+        <span class="svc-key">since</span>
+        <span class="svc-val svc-timestamp">{{ since }}</span>
+        {% endif %}
+    </div>
+</div>
+{% endfor %}
+</div>
+
+<script type="module" src="/assets/js/services.js"></script>
+{% endblock %}

@@ -44,7 +44,8 @@
       "Bash(systemctl status:*)",
       "Bash(deno --version)",
       "Bash(deno info:*)",
-      "Bash(deno cache:*)"
+      "Bash(deno cache:*)",
+      "Bash(systemctl show:*)"
     ]
   }
 }
