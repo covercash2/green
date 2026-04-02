@@ -13,7 +13,7 @@ use axum::{
 };
 use serde::Deserialize;
 
-use crate::{ServerState, VERSION, auth::{AuthUserInfo, MaybeAuthUser, Role}, error::Error};
+use crate::{ServerState, VERSION, auth::{AuthUserInfo, MaybeAuthUser, Role}, error::Error, index::NavLink};
 
 // ─── Slug ─────────────────────────────────────────────────────────────────────
 
@@ -487,6 +487,7 @@ pub struct NotesIndexPage {
     pub world_notes: Vec<NoteEntry>,
     pub session_notes: Vec<NoteEntry>,
     pub auth_user: Option<AuthUserInfo>,
+    pub nav_links: Arc<[NavLink]>,
 }
 
 #[derive(Template)]
@@ -497,6 +498,7 @@ pub struct NotesDetailPage {
     /// Pre-rendered HTML from [`RenderedHtml`] — safe for `|safe` in the template.
     pub content: String,
     pub auth_user: Option<AuthUserInfo>,
+    pub nav_links: Arc<[NavLink]>,
 }
 
 // ─── Handlers ─────────────────────────────────────────────────────────────────
@@ -532,6 +534,7 @@ pub async fn notes_index_route(
         world_notes,
         session_notes,
         auth_user,
+        nav_links: state.nav_links.clone(),
     };
     Ok(Html(page.render()?))
 }
@@ -554,6 +557,7 @@ pub async fn notes_detail_route(
         title: note.title.clone(),
         content,
         auth_user: auth_user.clone(),
+        nav_links: state.nav_links.clone(),
     };
     Ok(Html(page.render()?))
 }
@@ -1077,7 +1081,7 @@ mod tests {
         let breaker_detail_store: Arc<dyn BreakerDetailStore> = store.clone();
         let breaker_content = Arc::new(BreakerContent::new(store.as_ref()));
         let has_notes = notes_store.is_some();
-        let index = Index::new(Routes::default(), has_notes, false, false, false, false).await.unwrap();
+        let index = Index::new(Routes::default(), has_notes, false, false, false, &HashSet::new(), None, Arc::new([])).await.unwrap();
 
         ServerState {
             certificate: Arc::from("fake-cert"),
@@ -1090,6 +1094,7 @@ mod tests {
             mqtt_state: None,
             log_config: None,
             systemd_config: None,
+            nav_links: Arc::new([]),
         }
     }
 

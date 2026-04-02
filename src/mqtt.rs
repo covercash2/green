@@ -28,6 +28,7 @@ use tokio::sync::{broadcast, watch, Mutex as TokioMutex};
 use crate::{
     auth::{AuthUserInfo, GmUser},
     error::Error,
+    index::NavLink,
     ServerState,
 };
 
@@ -1188,13 +1189,14 @@ mod tests {
             certificate: Arc::from(""),
             breaker_content,
             breaker_detail_store: store,
-            index: Index::new(Routes::default(), false, false, false, false, false).await.unwrap(),
+            index: Index::new(Routes::default(), false, false, false, false, &Default::default(), None, Arc::new([])).await.unwrap(),
             tailscale_socket: Arc::from(Path::new("/tmp/fake.sock")),
             notes_store: None,
             auth_state: Some(Arc::new(auth_state)),
             mqtt_state: Some(mqtt_state),
             log_config: None,
             systemd_config: None,
+            nav_links: Arc::new([]),
         }
     }
 
@@ -1336,13 +1338,14 @@ mod tests {
             certificate: Arc::from(""),
             breaker_content: Arc::new(BreakerContent::new(store.as_ref())),
             breaker_detail_store: store,
-            index: Index::new(Routes::default(), false, false, false, false, false).await.unwrap(),
+            index: Index::new(Routes::default(), false, false, false, false, &Default::default(), None, Arc::new([])).await.unwrap(),
             tailscale_socket: Arc::from(Path::new("/tmp/fake.sock")),
             notes_store: None,
             auth_state: None,
             mqtt_state: Some(mqtt_state),
             log_config: None,
             systemd_config: None,
+            nav_links: Arc::new([]),
         };
         let app = Router::new()
             .route("/metrics", get(metrics_route))
@@ -1366,12 +1369,13 @@ mod tests {
 struct MqttPage {
     version: &'static str,
     auth_user: Option<AuthUserInfo>,
+    nav_links: Arc<[NavLink]>,
 }
 
 /// GET `/mqtt` — renders the MQTT live-feed page (GM only).
 pub async fn mqtt_page_route(
     user: GmUser,
-    State(_state): State<ServerState>,
+    State(state): State<ServerState>,
 ) -> Result<Html<String>, Error> {
     let auth_user = Some(AuthUserInfo {
         username: user.0.username.clone(),
@@ -1380,6 +1384,7 @@ pub async fn mqtt_page_route(
     let page = MqttPage {
         version: crate::VERSION,
         auth_user,
+        nav_links: state.nav_links.clone(),
     };
     Ok(Html(page.render()?))
 }
@@ -1639,6 +1644,7 @@ struct MqttDevicesPage {
     devices: Vec<DeviceRow>,
     auth_user: Option<AuthUserInfo>,
     version: &'static str,
+    nav_links: Arc<[NavLink]>,
 }
 
 /// GET `/mqtt/devices` — MQTT device inventory table (GM only).
@@ -1678,7 +1684,7 @@ pub async fn mqtt_devices_route(
         })
         .collect();
 
-    let page = MqttDevicesPage { devices, auth_user, version: crate::VERSION };
+    let page = MqttDevicesPage { devices, auth_user, version: crate::VERSION, nav_links: state.nav_links.clone() };
     Ok(Html(page.render()?))
 }
 

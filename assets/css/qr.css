@@ -1,0 +1,11 @@
+/* --- QR Result --- */
+
+.qr-result {
+    margin: 1rem 0;
+}
+
+.qr-result svg {
+    max-width: 100%;
+    height: auto;
+    display: block;
+}

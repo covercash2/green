@@ -21,7 +21,7 @@ use webauthn_rs::prelude::{
     WebauthnBuilder,
 };
 
-use crate::{ServerState, error::Error};
+use crate::{ServerState, error::Error, index::NavLink};
 
 // ─── TTL constants ─────────────────────────────────────────────────────────
 
@@ -427,6 +427,7 @@ pub struct LoginPage {
     pub version: &'static str,
     pub auth_user: Option<AuthUserInfo>,
     pub next_url: String,
+    pub nav_links: Arc<[NavLink]>,
 }
 
 #[derive(Template)]
@@ -434,10 +435,11 @@ pub struct LoginPage {
 pub struct RegisterPage {
     pub version: &'static str,
     pub auth_user: Option<AuthUserInfo>,
+    pub nav_links: Arc<[NavLink]>,
 }
 
 pub async fn login_page(
-    State(_s): State<ServerState>,
+    State(s): State<ServerState>,
     Query(q): Query<LoginQuery>,
 ) -> Result<Html<String>, Error> {
     Ok(Html(
@@ -448,16 +450,18 @@ pub async fn login_page(
                 .next
                 .filter(|n| n.starts_with('/') && !n.starts_with("//"))
                 .unwrap_or_else(|| "/".to_owned()),
+            nav_links: s.nav_links.clone(),
         }
         .render()?,
     ))
 }
 
-pub async fn register_page(State(_s): State<ServerState>) -> Result<Html<String>, Error> {
+pub async fn register_page(State(s): State<ServerState>) -> Result<Html<String>, Error> {
     Ok(Html(
         RegisterPage {
             version: crate::VERSION,
             auth_user: None,
+            nav_links: s.nav_links.clone(),
         }
         .render()?,
     ))
@@ -726,10 +730,11 @@ pub struct RecoveryPage {
     pub sent: bool,
     pub username: String,
     pub error: Option<String>,
+    pub nav_links: Arc<[NavLink]>,
 }
 
 pub async fn recover_page(
-    State(_s): State<ServerState>,
+    State(s): State<ServerState>,
     Query(q): Query<RecoveryQuery>,
 ) -> Result<Html<String>, Error> {
     Ok(Html(
@@ -739,6 +744,7 @@ pub async fn recover_page(
             sent: q.sent.unwrap_or(false),
             username: q.username.unwrap_or_default(),
             error: q.error,
+            nav_links: s.nav_links.clone(),
         }
         .render()?,
     ))
@@ -937,7 +943,7 @@ mod tests {
         let store = Arc::new(BreakerStore::from_data(data).unwrap());
         let breaker_content = Arc::new(BreakerContent::new(store.as_ref()));
         let breaker_detail_store: Arc<dyn BreakerDetailStore> = store;
-        let index = Index::new(Routes::default(), false, false, false, false, false).await.unwrap();
+        let index = Index::new(Routes::default(), false, false, false, false, &Default::default(), None, Arc::new([])).await.unwrap();
 
         ServerState {
             certificate: Arc::from("fake-cert"),
@@ -950,6 +956,7 @@ mod tests {
             mqtt_state: None,
             log_config: None,
             systemd_config: None,
+            nav_links: Arc::new([]),
         }
     }
 

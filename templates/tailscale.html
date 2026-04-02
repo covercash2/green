@@ -1,5 +1,9 @@
 {% extends "base.html" %}
 
+{% block styles %}
+<link rel="stylesheet" href="/assets/css/tailscale.css?v={{ version }}">
+{% endblock %}
+
 {% block title %}tailscale{% endblock %}
 
 {% block content %}

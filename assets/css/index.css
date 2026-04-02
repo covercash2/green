@@ -1,0 +1,51 @@
+/* --- Index page --- */
+
+.index-logo {
+    display: block;
+    max-width: 180px;
+    max-height: 120px;
+    margin: 0 auto 1rem;
+    object-fit: contain;
+}
+
+.leet-h1 {
+    font-size: 3rem;
+    color: var(--color-heading);
+    text-shadow: 0 0 8px var(--color-heading-glow), 0 0 25px var(--color-heading-glow);
+    text-align: center;
+}
+
+.route-icon {
+    width: 24px;
+    height: 24px;
+    object-fit: contain;
+    vertical-align: middle;
+    margin-right: 0.5rem;
+    opacity: 0.85;
+    filter: brightness(0) invert(1);
+}
+
+.leet-description {
+    font-size: 1rem;
+    padding-left: 20px;
+}
+
+/* --- Responsive --- */
+
+@media (max-width: 600px) {
+    .leet-list-item {
+        width: 100%;
+        margin: 0.10rem 0;
+        box-sizing: border-box;
+    }
+
+    .index-logo {
+        max-width: 80px;
+        max-height: 60px;
+    }
+
+    .route-icon {
+        width: 16px;
+        height: 16px;
+    }
+}

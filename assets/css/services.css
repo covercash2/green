@@ -1,0 +1,149 @@
+/* ─── Services dashboard ────────────────────────────────────────────────────── */
+
+.svc-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    margin-bottom: 1.25rem;
+    font-size: 0.85rem;
+    color: var(--color-fg-dim);
+}
+
+.svc-refresh-btn {
+    margin-left: auto;
+}
+
+.svc-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 1rem;
+}
+
+.svc-card {
+    border: 1px solid var(--color-border);
+    border-radius: 6px;
+    padding: 0.85rem 1rem;
+    background: var(--color-bg-card, rgba(255,255,255,0.03));
+}
+
+.svc-card-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    margin-bottom: 0.5rem;
+}
+
+.svc-icon {
+    width: 20px;
+    height: 20px;
+    object-fit: contain;
+    flex-shrink: 0;
+    opacity: 0.8;
+    filter: brightness(0) invert(1);
+}
+
+.svc-name {
+    font-weight: 600;
+    font-size: 0.95rem;
+}
+
+.svc-link {
+    color: inherit;
+    text-decoration: none;
+}
+
+.svc-link:hover {
+    text-decoration: underline;
+}
+
+.svc-badge {
+    font-size: 0.75rem;
+    padding: 0.15em 0.5em;
+    border-radius: 999px;
+    white-space: nowrap;
+}
+
+.svc-description {
+    font-size: 0.8rem;
+    color: var(--color-fg-dim);
+    margin-bottom: 0.5rem;
+}
+
+.svc-fields {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 0.15rem 0.75rem;
+    font-size: 0.8rem;
+    align-items: baseline;
+}
+
+.svc-key {
+    color: var(--color-fg-dim);
+    text-align: right;
+}
+
+.svc-val {
+    color: var(--color-fg);
+}
+
+.svc-count {
+    opacity: 0.6;
+}
+
+.svc-updated {
+    opacity: 0.5;
+    font-size: 0.8rem;
+}
+
+.svc-timestamp {
+    font-size: 0.75rem;
+    opacity: 0.75;
+}
+
+/* Health state colours */
+.svc-healthy {
+    border-color: rgba(80, 200, 120, 0.4);
+}
+.svc-healthy .svc-badge {
+    background: rgba(80, 200, 120, 0.15);
+    color: #50c878;
+}
+
+.svc-degraded {
+    border-color: rgba(240, 192, 96, 0.4);
+}
+.svc-degraded .svc-badge {
+    background: rgba(240, 192, 96, 0.15);
+    color: #f0c060;
+}
+
+.svc-inactive {
+    border-color: rgba(150, 150, 160, 0.3);
+    opacity: 0.7;
+}
+.svc-inactive .svc-badge {
+    background: rgba(150, 150, 160, 0.15);
+    color: var(--color-fg-dim);
+}
+
+.svc-failed {
+    border-color: rgba(255, 107, 107, 0.4);
+}
+.svc-failed .svc-badge {
+    background: rgba(255, 107, 107, 0.15);
+    color: #ff6b6b;
+}
+
+.log-line-raw {
+    color: var(--color-fg-dim);
+}
+
+/* --- Responsive --- */
+
+@media (max-width: 600px) {
+    .svc-icon {
+        width: 14px;
+        height: 14px;
+    }
+}

@@ -1,0 +1,51 @@
+/* --- Notes Vault --- */
+
+.notes-section {
+    margin-bottom: 2rem;
+}
+
+.notes-h2 {
+    font-size: 0.85rem;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--color-heading);
+    margin: 0 0 0.75rem;
+    border-bottom: 1px solid rgba(198, 120, 221, 0.2);
+    padding-bottom: 0.3rem;
+}
+
+.notes-empty {
+    opacity: 0.5;
+    font-size: 0.9rem;
+}
+
+.notes-dead-link {
+    opacity: 0.4;
+    text-decoration: line-through;
+}
+
+.notes-detail {
+    max-width: 72ch;
+    margin-top: 1.5rem;
+}
+
+/* Server-side redacted content — placeholder shown to non-GM viewers.
+   Secret text is never included in the HTML sent to the browser. */
+
+.notes-redacted {
+    margin: 1rem 0;
+    padding: 0.4rem 0.75rem;
+    border: 1px dashed rgba(198, 120, 221, 0.25);
+    color: var(--color-muted, #888);
+    font-style: italic;
+    font-size: 0.9em;
+    user-select: none;
+}
+
+.notes-secret-badge {
+    font-size: 0.75rem;
+    opacity: 0.6;
+    margin-left: 0.25rem;
+    vertical-align: middle;
+    user-select: none;
+}

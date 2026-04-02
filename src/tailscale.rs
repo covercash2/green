@@ -1,11 +1,11 @@
-use std::{collections::HashMap, path::Path};
+use std::{collections::HashMap, path::Path, sync::Arc};
 
 use askama::Template;
 use axum::{extract::State, response::Html};
 use serde::Deserialize;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
-use crate::{auth::{AuthUserInfo, GmUser}, error::Error, ServerState};
+use crate::{auth::{AuthUserInfo, GmUser}, error::Error, index::NavLink, ServerState};
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "PascalCase")]
@@ -122,6 +122,7 @@ pub struct TailscalePage {
     pub self_peer: TailscalePeer,
     pub peers: Vec<TailscalePeer>,
     pub auth_user: Option<AuthUserInfo>,
+    pub nav_links: Arc<[NavLink]>,
 }
 
 async fn fetch_status(socket_path: &Path) -> Result<TailscaleStatus, Error> {
@@ -428,6 +429,7 @@ pub async fn tailscale_route(
         self_peer: status.self_peer,
         peers,
         auth_user,
+        nav_links: state.nav_links.clone(),
     };
 
     Ok(Html(page.render()?))

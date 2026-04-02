@@ -1,0 +1,50 @@
+/* --- Log viewer --- */
+
+.logs-controls {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin-bottom: 0.5rem;
+}
+
+.logs-autoscroll-label {
+    font-size: 0.8rem;
+    color: var(--color-fg-dim);
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    cursor: pointer;
+}
+
+.log-feed {
+    height: 70vh;
+    overflow-y: auto;
+    background: var(--color-bg-item);
+    border: 1px solid rgba(51, 255, 51, 0.15);
+    padding: 0.5rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+}
+
+.log-line {
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    white-space: pre-wrap;
+    word-break: break-all;
+    padding: 0.1rem 0;
+    color: var(--color-fg);
+}
+
+.log-line-error {
+    color: #ff6b6b;
+    text-shadow: 0 0 4px rgba(255, 107, 107, 0.3);
+}
+
+.log-line-warn {
+    color: #f0c060;
+}
+
+.log-line-debug {
+    opacity: 0.5;
+}

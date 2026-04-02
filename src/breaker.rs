@@ -4,7 +4,9 @@ use axum::{
     response::Html,
 };
 
-use crate::{auth::{AuthUserInfo, GmUser}, breaker_detail::{BreakerDetailStore, BreakerSlot}, error::Error, ServerState};
+use std::sync::Arc;
+
+use crate::{auth::{AuthUserInfo, GmUser}, breaker_detail::{BreakerDetailStore, BreakerSlot}, error::Error, index::NavLink, ServerState};
 
 /// Pre-computed breaker panel HTML content (the circuit layout).
 /// Stored in ServerState and used to construct `BreakerPage` per request.
@@ -23,6 +25,7 @@ pub struct BreakerPage {
     pub content: String,
     pub version: &'static str,
     pub auth_user: Option<AuthUserInfo>,
+    pub nav_links: Arc<[NavLink]>,
 }
 
 fn breaker_class(label: &str) -> &'static str {
@@ -132,6 +135,7 @@ pub async fn breaker_route(
         content: state.breaker_content.0.clone(),
         version: crate::VERSION,
         auth_user,
+        nav_links: state.nav_links.clone(),
     };
     Ok(Html(page.render()?))
 }

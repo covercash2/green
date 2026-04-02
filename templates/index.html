@@ -1,15 +1,75 @@
 {% extends "base.html" %}
 
+{% block styles %}
+<link rel="stylesheet" href="/assets/css/index.css?v={{ version }}">
+<link rel="stylesheet" href="/assets/css/services.css?v={{ version }}">
+{% endblock %}
+
 {% block title %}green{% endblock %}
 
 {% block content %}
+{% if let Some(url) = logo_url %}
+<img src="{{ url }}" alt="logo" class="index-logo">
+{% endif %}
+
+{% if !services.is_empty() %}
+<h1 class="leet-h1">services</h1>
+<div class="svc-toolbar">
+    <span class="svc-count">{{ services.len() }} units</span>
+    <span class="svc-updated">updated <span id="svc-last-updated">now</span></span>
+    <button class="leet-btn svc-refresh-btn" id="svc-refresh">refresh</button>
+</div>
+<div class="svc-grid" id="svc-grid">
+{% for svc in services %}
+<div class="svc-card {{ svc.health.css_class() }}">
+    <div class="svc-card-header">
+        {% let icon = svc.icon_url.as_deref().unwrap_or("/assets/img/service.svg") %}
+        <img src="{{ icon }}" alt="" class="svc-icon" aria-hidden="true" width="18" height="18">
+        {% if let Some(url) = svc.url.as_ref() %}
+        <a href="{{ url }}" class="svc-name leet-link">{{ svc.name }}</a>
+        {% else %}
+        <span class="svc-name">{{ svc.name }}</span>
+        {% endif %}
+        <span class="svc-badge {{ svc.health.css_class() }}">{{ svc.health.label() }}</span>
+    </div>
+    {% if !svc.description.is_empty() %}
+    <div class="svc-description">{{ svc.description }}</div>
+    {% endif %}
+    <div class="svc-fields">
+        <span class="svc-key">state</span>
+        <span class="svc-val">{{ svc.active_state }}/{{ svc.sub_state }}</span>
+        {% if let Some(pid) = svc.pid %}
+        <span class="svc-key">pid</span>
+        <span class="svc-val">{{ pid }}</span>
+        {% endif %}
+        {% if let Some(since) = svc.since.as_ref() %}
+        <span class="svc-key">since</span>
+        <span class="svc-val svc-timestamp">{{ since }}</span>
+        {% endif %}
+    </div>
+</div>
+{% endfor %}
+</div>
+{% endif %}
+
+{% if !routes.is_empty() %}
 <h1 class="leet-h1">routes</h1>
 <ul class="list-group">
     {% for entry in routes %}
     <li class="leet-list-item">
+        {% if let Some(icon) = entry.icon_url.as_ref() %}
+        <img src="{{ icon }}" alt="" class="route-icon" aria-hidden="true" width="20" height="20">
+        {% endif %}
         <a href="{{ entry.href }}" class="leet-link">{{ entry.name }}</a>
         <div class="leet-description">{{ entry.description }}</div>
     </li>
     {% endfor %}
 </ul>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+{% if !services.is_empty() %}
+<script type="module" src="/assets/js/services.js?v={{ version }}"></script>
+{% endif %}
 {% endblock %}

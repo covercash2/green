@@ -1,5 +1,9 @@
 {% extends "base.html" %}
 
+{% block styles %}
+<link rel="stylesheet" href="/assets/css/services.css?v={{ version }}">
+{% endblock %}
+
 {% block title %}services{% endblock %}
 
 {% block content %}
@@ -16,7 +20,13 @@
 {% for svc in services %}
 <div class="svc-card {{ svc.health.css_class() }}">
     <div class="svc-card-header">
+        {% let icon = svc.icon_url.as_deref().unwrap_or("/assets/img/service.svg") %}
+        <img src="{{ icon }}" alt="" class="svc-icon" aria-hidden="true" width="18" height="18">
+        {% if let Some(url) = svc.url.as_ref() %}
+        <a href="{{ url }}" class="svc-name leet-link">{{ svc.name }}</a>
+        {% else %}
         <span class="svc-name">{{ svc.name }}</span>
+        {% endif %}
         <span class="svc-badge {{ svc.health.css_class() }}">{{ svc.health.label() }}</span>
     </div>
     {% if !svc.description.is_empty() %}
@@ -38,5 +48,5 @@
 {% endfor %}
 </div>
 
-<script type="module" src="/assets/js/services.js"></script>
+<script type="module" src="/assets/js/services.js?v={{ version }}"></script>
 {% endblock %}

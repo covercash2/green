@@ -45,7 +45,9 @@
       "Bash(deno --version)",
       "Bash(deno info:*)",
       "Bash(deno cache:*)",
-      "Bash(systemctl show:*)"
+      "Bash(systemctl show:*)",
+      "Bash(python3 -m json.tool)",
+      "Bash(head -15 grep -n \"^use\\\\|collections::Hash\" /home/chrash/github/covercash2/green/src/auth.rs)"
     ]
   }
 }

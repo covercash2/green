@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use askama::Template;
 use axum::{
     extract::{Json, State},
@@ -7,23 +9,25 @@ use axum::{
 use qrcode::{QrCode, render::svg};
 use serde::Deserialize;
 
-use crate::{ServerState, auth::{AuthUserInfo, MaybeAuthUser}, error::Error};
+use crate::{ServerState, auth::{AuthUserInfo, MaybeAuthUser}, error::Error, index::NavLink};
 
 #[derive(Debug, Clone, Template)]
 #[template(path = "qr.html")]
 pub struct QrPage {
     pub version: &'static str,
     pub auth_user: Option<AuthUserInfo>,
+    pub nav_links: Arc<[NavLink]>,
 }
 
 pub async fn qr_page_route(
     MaybeAuthUser(auth_user): MaybeAuthUser,
-    State(_): State<ServerState>,
+    State(state): State<ServerState>,
 ) -> Result<Html<String>, Error> {
     Ok(Html(
         QrPage {
             version: crate::VERSION,
             auth_user,
+            nav_links: state.nav_links.clone(),
         }
         .render()?,
     ))
@@ -65,7 +69,7 @@ mod tests {
             index::Index,
             route::Routes,
         };
-        use std::{collections::HashMap, sync::Arc};
+        use std::{collections::{HashMap, HashSet}, sync::Arc};
 
         let store = Arc::new(
             BreakerStore::from_data(BreakerData {
@@ -81,7 +85,7 @@ mod tests {
             certificate: Arc::from(""),
             breaker_content,
             breaker_detail_store: store,
-            index: Index::new(Routes::default(), false, false, false, false, false).await.unwrap(),
+            index: Index::new(Routes::default(), false, false, false, false, &HashSet::new(), None, Arc::new([])).await.unwrap(),
             tailscale_socket: Arc::from(std::path::Path::new(
                 "/run/tailscale/tailscaled.sock",
             )),
@@ -90,6 +94,7 @@ mod tests {
             mqtt_state: None,
             log_config: None,
             systemd_config: None,
+            nav_links: Arc::new([]),
         }
     }
 

@@ -5,13 +5,30 @@ use axum::{Json, extract::State, response::Html};
 use serde::{Deserialize, Serialize};
 use tokio::process::Command;
 
+use std::sync::Arc;
+
 use crate::{
     ServerState, VERSION,
     auth::{AuthUser, AuthUserInfo, GmUser},
     error::Error,
+    index::NavLink,
 };
 
 // ─── Config ───────────────────────────────────────────────────────────────────
+
+/// Per-unit configuration within [`SystemdConfig`].
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct UnitConfig {
+    /// Systemd unit name (e.g. `"postgresql"`, `"mosquitto.service"`).
+    /// Names without a suffix are treated as `.service` units by systemd.
+    pub name: String,
+    /// Optional URL for an icon image shown on the services dashboard.
+    #[serde(default)]
+    pub icon_url: Option<String>,
+    /// Optional URL linking the service card to its web UI.
+    #[serde(default)]
+    pub url: Option<String>,
+}
 
 /// Systemd unit monitoring configuration.
 ///
@@ -19,9 +36,7 @@ use crate::{
 /// route returns 404.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct SystemdConfig {
-    /// Systemd unit names to monitor (e.g. `"postgresql"`, `"mosquitto.service"`).
-    /// Names without a suffix are treated as `.service` units by systemd.
-    pub units: Vec<String>,
+    pub units: Vec<UnitConfig>,
 }
 
 // ─── Status types ────────────────────────────────────────────────────────────
@@ -83,6 +98,10 @@ pub struct ServiceStatus {
     pub since: Option<String>,
     /// Derived health bucket.
     pub health: Health,
+    /// Optional icon URL from config.
+    pub icon_url: Option<String>,
+    /// Optional URL linking to the service's web UI.
+    pub url: Option<String>,
 }
 
 // ─── Parsing ─────────────────────────────────────────────────────────────────
@@ -96,7 +115,7 @@ const PROPERTIES: &str =
 ///
 /// Unknown keys are silently ignored so this stays forward-compatible with
 /// additional properties being added to the query.
-pub fn parse_systemctl_output(name: &str, output: &str) -> ServiceStatus {
+pub fn parse_systemctl_output(name: &str, output: &str, icon_url: Option<String>, url: Option<String>) -> ServiceStatus {
     let mut description = String::new();
     let mut load_state = String::new();
     let mut active_state = String::new();
@@ -127,7 +146,7 @@ pub fn parse_systemctl_output(name: &str, output: &str) -> ServiceStatus {
     }
 
     let health = derive_health(&load_state, &active_state, &sub_state);
-    ServiceStatus { name: name.to_owned(), description, load_state, active_state, sub_state, pid, since, health }
+    ServiceStatus { name: name.to_owned(), description, load_state, active_state, sub_state, pid, since, health, icon_url, url }
 }
 
 fn derive_health(load_state: &str, active_state: &str, sub_state: &str) -> Health {
@@ -144,18 +163,18 @@ fn derive_health(load_state: &str, active_state: &str, sub_state: &str) -> Healt
 
 // ─── systemctl query ─────────────────────────────────────────────────────────
 
-async fn query_unit(name: &str) -> ServiceStatus {
+async fn query_unit(unit: &UnitConfig) -> ServiceStatus {
     let result = Command::new("systemctl")
-        .args(["show", name, "--property", PROPERTIES, "--no-pager"])
+        .args(["show", &unit.name, "--property", PROPERTIES, "--no-pager"])
         .output()
         .await;
 
     match result {
-        Ok(out) => parse_systemctl_output(name, &String::from_utf8_lossy(&out.stdout)),
+        Ok(out) => parse_systemctl_output(&unit.name, &String::from_utf8_lossy(&out.stdout), unit.icon_url.clone(), unit.url.clone()),
         Err(e) => {
-            tracing::warn!(unit = name, error = %e, "systemctl query failed");
+            tracing::warn!(unit = %unit.name, error = %e, "systemctl query failed");
             ServiceStatus {
-                name: name.to_owned(),
+                name: unit.name.clone(),
                 description: String::new(),
                 load_state: "error".into(),
                 active_state: "unknown".into(),
@@ -163,6 +182,8 @@ async fn query_unit(name: &str) -> ServiceStatus {
                 pid: None,
                 since: None,
                 health: Health::Failed,
+                icon_url: unit.icon_url.clone(),
+                url: unit.url.clone(),
             }
         }
     }
@@ -170,7 +191,7 @@ async fn query_unit(name: &str) -> ServiceStatus {
 
 /// Query all configured units concurrently.
 pub async fn query_all(config: &SystemdConfig) -> Vec<ServiceStatus> {
-    futures::future::join_all(config.units.iter().map(|n| query_unit(n))).await
+    futures::future::join_all(config.units.iter().map(|u| query_unit(u))).await
 }
 
 // ─── Templates ───────────────────────────────────────────────────────────────
@@ -181,6 +202,7 @@ struct ServicesPage {
     version: &'static str,
     auth_user: Option<AuthUserInfo>,
     services: Vec<ServiceStatus>,
+    nav_links: Arc<[NavLink]>,
 }
 
 // ─── Handlers ────────────────────────────────────────────────────────────────
@@ -200,6 +222,7 @@ pub async fn services_route(
         version: VERSION,
         auth_user: Some(auth_user_info(&user)),
         services,
+        nav_links: state.nav_links.clone(),
     };
     Ok(Html(page.render()?))
 }
@@ -220,7 +243,7 @@ mod tests {
     use super::*;
 
     fn parse(name: &str, output: &str) -> ServiceStatus {
-        parse_systemctl_output(name, output)
+        parse_systemctl_output(name, output, None, None)
     }
 
     #[test]
