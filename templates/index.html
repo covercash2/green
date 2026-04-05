@@ -52,6 +52,46 @@
 </div>
 {% endif %}
 
+{% for group in peer_groups %}
+<h2 class="svc-peer-heading">
+    <a href="{{ group.url }}" class="leet-link">{{ group.name }}</a>
+    {% if !group.online %}<span class="svc-peer-offline">offline</span>{% endif %}
+</h2>
+{% if group.online %}
+<div class="svc-grid svc-peer-grid">
+{% for svc in group.services %}
+<div class="svc-card {{ svc.health.css_class() }}">
+    <div class="svc-card-header">
+        {% let icon = svc.icon_url.as_deref().unwrap_or("/assets/img/service.svg") %}
+        <img src="{{ icon }}" alt="" class="svc-icon" aria-hidden="true" width="18" height="18">
+        {% if let Some(url) = svc.url.as_ref() %}
+        <a href="{{ url }}" class="svc-name leet-link">{{ svc.name }}</a>
+        {% else %}
+        <span class="svc-name">{{ svc.name }}</span>
+        {% endif %}
+        <span class="svc-badge {{ svc.health.css_class() }}">{{ svc.health.label() }}</span>
+    </div>
+    {% if !svc.description.is_empty() %}
+    <div class="svc-description">{{ svc.description }}</div>
+    {% endif %}
+    <div class="svc-fields">
+        <span class="svc-key">state</span>
+        <span class="svc-val">{{ svc.active_state }}/{{ svc.sub_state }}</span>
+        {% if let Some(pid) = svc.pid %}
+        <span class="svc-key">pid</span>
+        <span class="svc-val">{{ pid }}</span>
+        {% endif %}
+        {% if let Some(since) = svc.since.as_ref() %}
+        <span class="svc-key">since</span>
+        <span class="svc-val svc-timestamp">{{ since }}</span>
+        {% endif %}
+    </div>
+</div>
+{% endfor %}
+</div>
+{% endif %}
+{% endfor %}
+
 {% if !routes.is_empty() %}
 <h1 class="leet-h1">routes</h1>
 <ul class="list-group">

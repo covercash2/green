@@ -49,6 +49,7 @@ mod logs;
 mod mqtt;
 mod notes;
 mod qr;
+mod recipes;
 mod route;
 mod services;
 mod tailscale;
@@ -200,6 +201,8 @@ pub struct ServerState {
     pub tailscale_socket: Arc<Path>,
     /// Scanned notes vault, or `None` if `vault_path` is not configured.
     pub notes_store: Option<Arc<notes::NotesStore>>,
+    /// Scanned recipe vault, or `None` if `recipe_vault_path` is not configured.
+    pub recipes_store: Option<Arc<recipes::RecipeStore>>,
     /// WebAuthn authentication state, or `None` if auth is not configured.
     pub auth_state: Option<Arc<auth::AuthState>>,
     /// MQTT broadcast state, or `None` if mqtt is not configured.
@@ -210,10 +213,32 @@ pub struct ServerState {
     pub systemd_config: Option<services::SystemdConfig>,
     /// Site-wide navigation links, built at startup from enabled features.
     pub nav_links: Arc<[NavLink]>,
+    /// Peer Green instances (GM-only nav links, for multi-machine navigation).
+    pub peers: Arc<[PeerInfo]>,
+    /// Shared HTTP client used for outbound requests (peer service proxying,
+    /// ntfy notifications handled separately in auth).
+    ///
+    /// A single `reqwest::Client` is reused across all requests so that the
+    /// underlying connection pool and keep-alive are shared.  Creating a new
+    /// client per request would bypass the pool and create unnecessary TCP
+    /// connections.
+    ///
+    /// See: <https://docs.rs/reqwest/latest/reqwest/struct.Client.html>
+    pub http_client: reqwest::Client,
+    /// Pre-shared secret this machine accepts for inbound peer service requests.
+    ///
+    /// Set via `GREEN_PEER_API_KEY` environment variable (injected by sops-nix
+    /// at runtime).  When `None`, inbound peer auth via API key is disabled.
+    pub peer_api_key: Option<Arc<str>>,
 }
 
 impl ServerState {
     async fn new(config: &Config) -> Result<Self, Error> {
+        // Build a shared HTTP client once at startup.  reqwest::Client is
+        // cheaply Clone (it wraps an Arc internally) so callers can clone it
+        // freely without creating extra connection pools.
+        // See: https://docs.rs/reqwest/latest/reqwest/struct.ClientBuilder.html
+        let http_client = reqwest::Client::new();
         let ca_content = read_file(&config.ca_path).await?;
         let breaker_data = BreakerData::load().await?;
 
@@ -232,7 +257,18 @@ impl ServerState {
             None
         };
 
+        let recipes_store = if let Some(ref rvp) = config.recipe_vault_path {
+            let rvp = rvp.clone();
+            let store = tokio::task::spawn_blocking(move || recipes::RecipeStore::scan(&rvp))
+                .await
+                .expect("recipe scan task panicked")?;
+            Some(Arc::new(store))
+        } else {
+            None
+        };
+
         let has_notes = notes_store.is_some();
+        let has_recipes = recipes_store.is_some();
         let has_mqtt = config.mqtt.is_some();
         let has_mqtt_devices = config.mqtt.as_ref().map_or(false, |m| !m.integrations.is_empty());
         let has_logs = config.log_config.is_some();
@@ -243,15 +279,19 @@ impl ServerState {
             .unwrap_or_default();
         let nav_links: Arc<[NavLink]> = {
             let mut links = vec![
-                NavLink { name: "home".into(), href: "/".into() },
+                NavLink { name: "home".into(), href: "/".into(), is_gm: false },
             ];
-            if has_mqtt { links.push(NavLink { name: "mqtt".into(), href: "/mqtt".into() }); }
-            if has_notes { links.push(NavLink { name: "notes".into(), href: "/notes".into() }); }
-            links.push(NavLink { name: "breaker".into(), href: "/breaker".into() });
-            links.push(NavLink { name: "tailscale".into(), href: "/tailscale".into() });
+            if has_mqtt { links.push(NavLink { name: "mqtt".into(), href: "/mqtt".into(), is_gm: false }); }
+            if has_notes { links.push(NavLink { name: "notes".into(), href: "/notes".into(), is_gm: false }); }
+            if has_recipes { links.push(NavLink { name: "recipes".into(), href: "/recipes".into(), is_gm: false }); }
+            links.push(NavLink { name: "breaker".into(), href: "/breaker".into(), is_gm: false });
+            links.push(NavLink { name: "tailscale".into(), href: "/tailscale".into(), is_gm: false });
+            for peer in &config.peers {
+                links.push(NavLink { name: peer.name.clone(), href: peer.url.clone(), is_gm: true });
+            }
             links.into()
         };
-        let index = Index::new(config.routes.clone(), has_notes, has_mqtt, has_mqtt_devices, has_logs, &service_urls, config.logo_url.clone(), nav_links.clone()).await?;
+        let index = Index::new(config.routes.clone(), has_notes, has_recipes, has_mqtt, has_mqtt_devices, has_logs, &service_urls, config.logo_url.clone(), nav_links.clone()).await?;
 
         let store = Arc::new(BreakerStore::from_data(breaker_data)?);
         let breaker_content = Arc::new(breaker::BreakerContent::new(store.as_ref()));
@@ -330,11 +370,15 @@ impl ServerState {
             index,
             tailscale_socket: Arc::from(config.tailscale_socket.as_path()),
             notes_store,
+            recipes_store,
             auth_state,
             mqtt_state,
             log_config: config.log_config.clone(),
             systemd_config: config.systemd.clone(),
             nav_links: nav_links.clone(),
+            peers: config.peers.clone().into(),
+            http_client,
+            peer_api_key: config.peer_api_key.as_deref().map(Arc::from),
         })
     }
 }
@@ -351,6 +395,8 @@ fn build_router(state: ServerState) -> axum::Router {
         .route(Route::Tailscale.as_str(), get(tailscale::tailscale_route))
         .route(Route::Notes.as_str(), get(notes::notes_index_route))
         .route("/notes/{slug}", get(notes::notes_detail_route))
+        .route("/recipes", get(recipes::recipes_index_route))
+        .route("/recipes/{slug}", get(recipes::recipes_detail_route))
         .route(Route::AuthLogin.as_str(), get(auth::login_page))
         .route(Route::AuthRegister.as_str(), get(auth::register_page))
         .route("/auth/register/challenge", axum::routing::post(auth::start_registration))
@@ -398,6 +444,41 @@ pub struct Cli {
     pub config_path: PathBuf,
 }
 
+/// A remote Green instance that this instance links to in the GM nav and may
+/// proxy service status from.
+///
+/// # Config example
+///
+/// ```toml
+/// [[peers]]
+/// name    = "orion"
+/// url     = "https://green.orion.chrash.net"
+/// api_key = "long-random-secret"   # optional; enables service proxying
+/// ```
+///
+/// `api_key` is the secret token this instance sends to the peer when calling
+/// its `/api/services` endpoint.  The peer must have `peer_api_key` set to the
+/// same value in its own config.  If `api_key` is absent the peer still appears
+/// in the nav drawer but its services are not fetched.
+///
+/// Store the actual key value in a sops-encrypted file and inject it at runtime
+/// via environment variable — see [`Config::load`] for the `GREEN_PEER_API_KEY`
+/// override, which sets `api_key` on **all** peers simultaneously (suitable when
+/// every peer uses the same outbound key).  If peers use different keys, embed
+/// them per-peer and use the sops template to write each value.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct PeerInfo {
+    /// Human-readable name shown in the nav (e.g. `"orion"`).
+    pub name: String,
+    /// Full URL of the peer's Green instance (e.g. `"https://green.orion.chrash.net"`).
+    pub url: String,
+    /// Pre-shared secret sent as `X-Green-Api-Key` when proxying service status.
+    /// Must match the peer's `peer_api_key`.  If absent, service proxying is
+    /// disabled for this peer.
+    #[serde(default)]
+    pub api_key: Option<String>,
+}
+
 /// Application configuration loaded from a TOML file.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Config {
@@ -417,6 +498,9 @@ pub struct Config {
     /// Optional path to the Obsidian notes vault directory.
     #[serde(default)]
     pub vault_path: Option<PathBuf>,
+    /// Optional path to the recipe vault directory (Obsidian-style, notes tagged `recipe`).
+    #[serde(default)]
+    pub recipe_vault_path: Option<PathBuf>,
     /// WebAuthn / passkey auth configuration. If absent, auth is disabled.
     #[serde(default)]
     pub auth: Option<auth::AuthConfig>,
@@ -433,6 +517,21 @@ pub struct Config {
     /// Optional URL for a logo image shown on the index page.
     #[serde(default)]
     pub logo_url: Option<String>,
+    /// Remote Green instances linked in the GM nav drawer.
+    /// When a peer has `api_key` set, this instance will proxy its
+    /// `/api/services` response onto the home page.
+    #[serde(default)]
+    pub peers: Vec<PeerInfo>,
+    /// Pre-shared secret that peer instances must send as `X-Green-Api-Key`
+    /// when calling *this* machine's `/api/services` endpoint.
+    ///
+    /// If absent, peer-to-peer service proxying is disabled for *inbound*
+    /// requests (the endpoint still works for GM browser sessions).
+    ///
+    /// Keep this value out of config.toml in the Nix store — inject it via the
+    /// `GREEN_PEER_API_KEY` environment variable (see [`Config::load`]).
+    #[serde(default)]
+    pub peer_api_key: Option<String>,
 }
 
 impl Config {
@@ -452,6 +551,13 @@ impl Config {
             && let Some(ref mut mqtt) = config.mqtt
         {
             mqtt.password = Some(pw);
+        }
+        // Override peer_api_key from environment variable so that the secret
+        // never appears in config.toml / the Nix store.
+        // The sops-nix EnvironmentFile template should include:
+        //   GREEN_PEER_API_KEY=<decrypted value>
+        if let Ok(key) = std::env::var("GREEN_PEER_API_KEY") {
+            config.peer_api_key = Some(key);
         }
         Ok(config)
     }
@@ -515,8 +621,63 @@ async fn main() -> Result<(), Error> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
+
+    /// Build a minimal `ServerState` suitable for handler unit tests.
+    ///
+    /// All optional features (notes, recipes, auth, mqtt, logs, systemd) are
+    /// disabled by default.  Callers that need a specific feature can clone the
+    /// result and set the relevant field.
+    pub(crate) async fn minimal_server_state() -> ServerState {
+        use crate::{
+            breaker::BreakerContent,
+            breaker_detail::{BreakerData, BreakerDetailStore, BreakerStore},
+            index::Index,
+            route::Routes,
+        };
+        use std::collections::{HashMap, HashSet};
+
+        let data = BreakerData {
+            todos: vec![],
+            slots: HashMap::new(),
+            couples: vec![],
+        };
+        let store = Arc::new(BreakerStore::from_data(data).unwrap());
+        let breaker_detail_store: Arc<dyn BreakerDetailStore> = store.clone();
+        let breaker_content = Arc::new(BreakerContent::new(store.as_ref()));
+        let index = Index::new(
+            Routes::default(),
+            false,
+            false,
+            false,
+            false,
+            false,
+            &HashSet::new(),
+            None,
+            Arc::new([]),
+        )
+        .await
+        .unwrap();
+
+        ServerState {
+            certificate: Arc::from("fake-cert"),
+            breaker_content,
+            breaker_detail_store,
+            index,
+            tailscale_socket: Arc::from(Path::new("/tmp/fake.sock")),
+            notes_store: None,
+            recipes_store: None,
+            auth_state: None,
+            mqtt_state: None,
+            log_config: None,
+            systemd_config: None,
+            nav_links: Arc::new([]),
+            peers: Arc::new([]),
+            http_client: reqwest::Client::new(),
+            peer_api_key: None,
+        }
+    }
 
     #[tokio::test]
     async fn config_can_be_deserialized() {
@@ -551,5 +712,34 @@ mod tests {
             config.vault_path.is_none(),
             "config.toml should not have a vault_path"
         );
+    }
+
+    #[tokio::test]
+    async fn config_without_peers_defaults_to_empty() {
+        let config = Config::load(PathBuf::from("config.toml"))
+            .await
+            .expect("Failed to load config.toml");
+        assert!(config.peers.is_empty(), "peers should default to empty");
+    }
+
+    #[test]
+    fn peer_info_deserializes_from_toml() {
+        let toml = r#"
+            [[peers]]
+            name = "orion"
+            url = "https://green.orion.chrash.net"
+
+            [[peers]]
+            name = "ultron"
+            url = "https://green.ultron.chrash.net"
+        "#;
+        #[derive(serde::Deserialize)]
+        struct PeersOnly {
+            peers: Vec<PeerInfo>,
+        }
+        let parsed: PeersOnly = toml::from_str(toml).expect("should parse");
+        assert_eq!(parsed.peers.len(), 2);
+        assert_eq!(parsed.peers[0].name, "orion");
+        assert_eq!(parsed.peers[1].url, "https://green.ultron.chrash.net");
     }
 }

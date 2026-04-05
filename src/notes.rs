@@ -105,6 +105,16 @@ impl RenderedHtml {
     pub fn into_inner(self) -> String {
         self.0
     }
+
+    /// Construct a `RenderedHtml` directly from a static placeholder string.
+    ///
+    /// This is only for use by sibling modules (e.g. `recipes`) that produce
+    /// the same server-side secret placeholder without going through the full
+    /// render pipeline.  The caller is responsible for ensuring the string is
+    /// safe HTML.
+    pub(crate) fn from_placeholder(html: &'static str) -> Self {
+        Self(html.to_owned())
+    }
 }
 
 // ─── Frontmatter ─────────────────────────────────────────────────────────────
@@ -183,7 +193,7 @@ fn parse_frontmatter(content: &str) -> (FrontMatter, &str) {
 
 /// Escape the five HTML-special characters so that untrusted text is safe to
 /// embed in an HTML attribute value or element content.
-fn escape_html(s: &str) -> String {
+pub(crate) fn escape_html(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     for ch in s.chars() {
         match ch {
@@ -198,7 +208,12 @@ fn escape_html(s: &str) -> String {
     out
 }
 
-fn resolve_wiki_links(text: &str, slug_set: &HashSet<Slug>) -> String {
+/// Resolve Obsidian-style `[[wiki links]]` to HTML anchors.
+///
+/// `base_path` is the URL prefix for resolved links (e.g. `"/notes/"` or `"/recipes/"`).
+/// Links to slugs present in `slug_set` become `<a>` tags; unknown slugs become
+/// `<span class="notes-dead-link">`.
+pub(crate) fn resolve_wiki_links(text: &str, slug_set: &HashSet<Slug>, base_path: &str) -> String {
     let mut result = String::with_capacity(text.len());
     let mut remaining = text;
 
@@ -223,7 +238,7 @@ fn resolve_wiki_links(text: &str, slug_set: &HashSet<Slug>) -> String {
             let display = escape_html(display);
             if slug_set.contains(&slug) {
                 result.push_str(&format!(
-                    r#"<a href="/notes/{slug}" class="leet-link">{display}</a>"#
+                    r#"<a href="{base_path}{slug}" class="leet-link">{display}</a>"#
                 ));
             } else {
                 result.push_str(&format!(
@@ -242,12 +257,12 @@ fn resolve_wiki_links(text: &str, slug_set: &HashSet<Slug>) -> String {
 /// Returns `true` if the paragraph contains `#secret` as a standalone word
 /// (i.e. as an Obsidian-style inline tag, not as part of a longer token like
 /// `#secretive` or `#secrets`).
-fn has_secret_tag(text: &str) -> bool {
+pub(crate) fn has_secret_tag(text: &str) -> bool {
     text.split_whitespace().any(|word| word == "#secret")
 }
 
 /// Remove all `#secret` tokens from the text, preserving line structure.
-fn strip_secret_tag(text: &str) -> String {
+pub(crate) fn strip_secret_tag(text: &str) -> String {
     text.lines()
         .map(|line| {
             line.split_whitespace()
@@ -267,7 +282,7 @@ fn strip_secret_tag(text: &str) -> String {
 ///
 /// For whole-note secrets, see the `tags: [secret]` frontmatter approach in the
 /// scan loop — this function handles inline paragraph-level redaction only.
-fn split_on_secret_paragraphs(text: &str) -> Vec<(String, bool)> {
+pub(crate) fn split_on_secret_paragraphs(text: &str) -> Vec<(String, bool)> {
     let mut parts: Vec<(String, bool)> = Vec::new();
     let mut current = String::new();
 
@@ -313,7 +328,7 @@ fn split_on_secret_paragraphs(text: &str) -> Vec<(String, bool)> {
 /// prevents a note author from injecting arbitrary HTML/JS through literal
 /// `<script>` blocks or inline tags, preserving the `RenderedHtml` safety
 /// guarantee.
-fn render_markdown(md: &str) -> RenderedHtml {
+pub(crate) fn render_markdown(md: &str) -> RenderedHtml {
     use pulldown_cmark::{Event, Options, Parser, html};
 
     let opts = Options::ENABLE_TABLES
@@ -331,7 +346,7 @@ fn render_markdown(md: &str) -> RenderedHtml {
 
 /// Server-side placeholder emitted in place of every secret paragraph for non-GM viewers.
 /// The secret text is never included in the response.
-const SECRET_PLACEHOLDER: &str = "<p class=\"notes-redacted\">🔒 redacted</p>\n";
+pub(crate) const SECRET_PLACEHOLDER: &str = "<p class=\"notes-redacted\">🔒 redacted</p>\n";
 
 /// Render the note body for a non-GM viewer.
 ///
@@ -340,7 +355,7 @@ const SECRET_PLACEHOLDER: &str = "<p class=\"notes-redacted\">🔒 redacted</p>\
 /// Public paragraphs are rendered as normal Markdown HTML.
 ///
 /// Returns `(html, has_secrets)`.
-fn render_note_body_redacted(text: &str) -> (RenderedHtml, bool) {
+pub(crate) fn render_note_body_redacted(text: &str) -> (RenderedHtml, bool) {
     let parts = split_on_secret_paragraphs(text);
     let has_secrets = parts.iter().any(|(_, is_secret)| *is_secret);
     let mut output = String::new();
@@ -356,7 +371,7 @@ fn render_note_body_redacted(text: &str) -> (RenderedHtml, bool) {
 
 /// Render the full note body for a GM viewer: all paragraphs, including secret
 /// ones, rendered as plain Markdown HTML with no redaction or wrapper.
-fn render_note_body_revealed(text: &str) -> RenderedHtml {
+pub(crate) fn render_note_body_revealed(text: &str) -> RenderedHtml {
     let parts = split_on_secret_paragraphs(text);
     let mut output = String::new();
     for (content, _is_secret) in &parts {
@@ -430,7 +445,7 @@ impl NotesStore {
                 .title
                 .unwrap_or_else(|| stem.replace('-', " ").replace('_', " "));
 
-            let resolved = resolve_wiki_links(body, &slug_set);
+            let resolved = resolve_wiki_links(body, &slug_set, "/notes/");
 
             // `tags: [secret]` (Obsidian-style) marks the entire note as redacted.
             let is_whole_secret = fm.tags.iter().any(|t| t == "secret");
@@ -683,7 +698,7 @@ mod tests {
     #[test]
     fn resolve_known_link() {
         let known = slug_set(&["The Known World"]);
-        let result = resolve_wiki_links("See [[The Known World]] for details.", &known);
+        let result = resolve_wiki_links("See [[The Known World]] for details.", &known, "/notes/");
         assert!(result.contains(r#"href="/notes/the-known-world""#));
         assert!(result.contains("The Known World"));
     }
@@ -691,7 +706,7 @@ mod tests {
     #[test]
     fn resolve_pipe_display_syntax() {
         let known = slug_set(&["The Known World"]);
-        let result = resolve_wiki_links("[[The Known World|the world]]", &known);
+        let result = resolve_wiki_links("[[The Known World|the world]]", &known, "/notes/");
         assert!(result.contains(r#"href="/notes/the-known-world""#));
         assert!(result.contains("the world"));
         assert!(!result.contains("The Known World"));
@@ -700,7 +715,7 @@ mod tests {
     #[test]
     fn resolve_dead_link() {
         let known = slug_set(&[]);
-        let result = resolve_wiki_links("[[Nonexistent Place]]", &known);
+        let result = resolve_wiki_links("[[Nonexistent Place]]", &known, "/notes/");
         assert!(result.contains("notes-dead-link"));
         assert!(result.contains("Nonexistent Place"));
     }
@@ -708,7 +723,7 @@ mod tests {
     #[test]
     fn resolve_multiple_links() {
         let known = slug_set(&["Place A", "Place B"]);
-        let result = resolve_wiki_links("Visit [[Place A]] and [[Place B]].", &known);
+        let result = resolve_wiki_links("Visit [[Place A]] and [[Place B]].", &known, "/notes/");
         assert!(result.contains(r#"href="/notes/place-a""#));
         assert!(result.contains(r#"href="/notes/place-b""#));
     }
@@ -716,7 +731,7 @@ mod tests {
     #[test]
     fn resolve_unclosed_bracket_passes_through() {
         let known = slug_set(&[]);
-        let result = resolve_wiki_links("[[unclosed", &known);
+        let result = resolve_wiki_links("[[unclosed", &known, "/notes/");
         assert_eq!(result, "[[unclosed");
     }
 
@@ -724,7 +739,7 @@ mod tests {
     fn resolve_no_links_unchanged() {
         let known = slug_set(&[]);
         let input = "Just plain text with no links.";
-        assert_eq!(resolve_wiki_links(input, &known), input);
+        assert_eq!(resolve_wiki_links(input, &known, "/notes/"), input);
     }
 
     #[test]
@@ -733,6 +748,7 @@ mod tests {
         let result = resolve_wiki_links(
             r#"[[Target|<script>alert(1)</script>]]"#,
             &known,
+            "/notes/",
         );
         assert!(!result.contains("<script>"), "raw <script> must not appear");
         assert!(result.contains("&lt;script&gt;"));
@@ -744,6 +760,7 @@ mod tests {
         let result = resolve_wiki_links(
             r#"[[Unknown|<img src=x onerror=alert(1)>]]"#,
             &known,
+            "/notes/",
         );
         assert!(!result.contains("<img"), "raw <img> must not appear");
         assert!(result.contains("&lt;img"));
@@ -752,7 +769,7 @@ mod tests {
     #[test]
     fn resolve_html_entities_in_display_text() {
         let known = slug_set(&["Target"]);
-        let result = resolve_wiki_links(r#"[[Target|A & B "quoted"]]"#, &known);
+        let result = resolve_wiki_links(r#"[[Target|A & B "quoted"]]"#, &known, "/notes/");
         assert!(result.contains("A &amp; B &quot;quoted&quot;"));
         assert!(!result.contains(r#"A & B "quoted""#));
     }
@@ -1081,7 +1098,7 @@ mod tests {
         let breaker_detail_store: Arc<dyn BreakerDetailStore> = store.clone();
         let breaker_content = Arc::new(BreakerContent::new(store.as_ref()));
         let has_notes = notes_store.is_some();
-        let index = Index::new(Routes::default(), has_notes, false, false, false, &HashSet::new(), None, Arc::new([])).await.unwrap();
+        let index = Index::new(Routes::default(), has_notes, false, false, false, false, &HashSet::new(), None, Arc::new([])).await.unwrap();
 
         ServerState {
             certificate: Arc::from("fake-cert"),
@@ -1090,11 +1107,15 @@ mod tests {
             index,
             tailscale_socket: Arc::from(Path::new("/tmp/fake.sock")),
             notes_store,
+            recipes_store: None,
             auth_state: None,
             mqtt_state: None,
             log_config: None,
             systemd_config: None,
             nav_links: Arc::new([]),
+            peers: Arc::new([]),
+            http_client: reqwest::Client::new(),
+            peer_api_key: None,
         }
     }
 

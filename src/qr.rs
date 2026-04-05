@@ -85,16 +85,20 @@ mod tests {
             certificate: Arc::from(""),
             breaker_content,
             breaker_detail_store: store,
-            index: Index::new(Routes::default(), false, false, false, false, &HashSet::new(), None, Arc::new([])).await.unwrap(),
+            index: Index::new(Routes::default(), false, false, false, false, false, &HashSet::new(), None, Arc::new([])).await.unwrap(),
             tailscale_socket: Arc::from(std::path::Path::new(
                 "/run/tailscale/tailscaled.sock",
             )),
             notes_store: None,
+            recipes_store: None,
             auth_state: None,
             mqtt_state: None,
             log_config: None,
             systemd_config: None,
             nav_links: Arc::new([]),
+            peers: Arc::new([]),
+            http_client: reqwest::Client::new(),
+            peer_api_key: None,
         }
     }
 

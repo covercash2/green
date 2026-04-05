@@ -943,7 +943,7 @@ mod tests {
         let store = Arc::new(BreakerStore::from_data(data).unwrap());
         let breaker_content = Arc::new(BreakerContent::new(store.as_ref()));
         let breaker_detail_store: Arc<dyn BreakerDetailStore> = store;
-        let index = Index::new(Routes::default(), false, false, false, false, &Default::default(), None, Arc::new([])).await.unwrap();
+        let index = Index::new(Routes::default(), false, false, false, false, false, &Default::default(), None, Arc::new([])).await.unwrap();
 
         ServerState {
             certificate: Arc::from("fake-cert"),
@@ -952,11 +952,15 @@ mod tests {
             index,
             tailscale_socket: Arc::from(Path::new("/tmp/fake.sock")),
             notes_store: None,
+            recipes_store: None,
             auth_state: Some(Arc::new(auth_state)),
             mqtt_state: None,
             log_config: None,
             systemd_config: None,
             nav_links: Arc::new([]),
+            peers: Arc::new([]),
+            http_client: reqwest::Client::new(),
+            peer_api_key: None,
         }
     }
 

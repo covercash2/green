@@ -3,6 +3,7 @@ logo_url = "/assets/favicon/android-chrome-512x512.png"
 ca_path = "fixtures/testCA.pem"
 log_level = "debug,sqlx=warn"
 vault_path = "fixtures/vault"
+recipe_vault_path = "fixtures/vault"
 
 [log_config]
 app_log = "logs/logs.ndjson"

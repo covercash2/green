@@ -3,13 +3,15 @@ use std::{collections::HashSet, sync::Arc};
 use askama::Template;
 use axum::{extract::State, response::Html};
 
-use crate::{Routes, ServerState, auth::{AuthUserInfo, MaybeAuthUser}, error::Error, services::ServiceStatus};
+use crate::{Routes, ServerState, auth::{AuthUserInfo, MaybeAuthUser}, error::Error, services::{PeerServiceGroup, ServiceStatus}};
 
 /// A navigation link shown in the site-wide nav bar.
 #[derive(Debug, Clone)]
 pub struct NavLink {
     pub name: String,
     pub href: String,
+    /// When true, the link is only rendered for GM users.
+    pub is_gm: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -24,7 +26,11 @@ pub struct IndexEntry {
 #[template(path = "index.html")]
 pub struct Index {
     pub routes: Vec<IndexEntry>,
+    /// Local systemd service statuses, queried per-request.
     pub services: Vec<ServiceStatus>,
+    /// Remote peer service groups, fetched in parallel per-request (GM only).
+    /// Empty for non-GM users — peers are only shown to GMs.
+    pub peer_groups: Vec<PeerServiceGroup>,
     pub version: &'static str,
     pub auth_user: Option<AuthUserInfo>,
     pub logo_url: Option<String>,
@@ -32,7 +38,8 @@ pub struct Index {
 }
 
 impl Index {
-    pub async fn new(routes: Routes, has_notes: bool, has_mqtt: bool, has_mqtt_devices: bool, has_logs: bool, service_urls: &HashSet<String>, logo_url: Option<String>, nav_links: Arc<[NavLink]>) -> Result<Self, Error> {
+    #[allow(clippy::too_many_arguments)]
+    pub async fn new(routes: Routes, has_notes: bool, has_recipes: bool, has_mqtt: bool, has_mqtt_devices: bool, has_logs: bool, service_urls: &HashSet<String>, logo_url: Option<String>, nav_links: Arc<[NavLink]>) -> Result<Self, Error> {
         let static_entries = [
             IndexEntry { name: "breaker box".into(), href: "/breaker".into(), description: "Electrical circuit layout".into(), icon_url: None },
             IndexEntry { name: "qr code".into(), href: "/qr".into(), description: "Generate a QR code".into(), icon_url: None },
@@ -40,6 +47,7 @@ impl Index {
         ];
 
         let notes_entry = has_notes.then_some(IndexEntry { name: "notes".into(), href: "/notes".into(), description: "D&D campaign notes".into(), icon_url: None });
+        let recipes_entry = has_recipes.then_some(IndexEntry { name: "recipes".into(), href: "/recipes".into(), description: "Recipe collection".into(), icon_url: None });
         let mqtt_entry = has_mqtt.then_some(IndexEntry { name: "mqtt".into(), href: "/mqtt".into(), description: "Live MQTT message feed".into(), icon_url: None });
         let mqtt_devices_entry = has_mqtt_devices.then_some(IndexEntry { name: "mqtt devices".into(), href: "/mqtt/devices".into(), description: "MQTT device inventory".into(), icon_url: None });
         let logs_entry = has_logs.then_some(IndexEntry { name: "logs".into(), href: "/logs/app".into(), description: "Dev server log viewer".into(), icon_url: None });
@@ -55,6 +63,7 @@ impl Index {
             })
             .chain(static_entries)
             .chain(notes_entry)
+            .chain(recipes_entry)
             .chain(mqtt_entry)
             .chain(mqtt_devices_entry)
             .chain(logs_entry)
@@ -65,6 +74,7 @@ impl Index {
         Ok(Index {
             routes,
             services: Vec::new(),
+            peer_groups: Vec::new(),
             version: crate::VERSION,
             auth_user: None,
             logo_url,
@@ -77,14 +87,40 @@ pub async fn index(
     MaybeAuthUser(auth_user): MaybeAuthUser,
     State(state): State<ServerState>,
 ) -> Result<Html<String>, Error> {
-    let services = if let Some(ref config) = state.systemd_config {
+    // Local services — always fetched when systemd is configured.
+    let local_services = if let Some(ref config) = state.systemd_config {
         crate::services::query_all(config).await
     } else {
         Vec::new()
     };
+
+    // Peer services — fetched in parallel, but only for GM users.
+    // Non-GMs never see peer data; skip the network calls entirely so a GM
+    // elsewhere is not waiting on peers that the current user wouldn't see.
+    //
+    // Only peers with `api_key` configured are contacted.  Peers without a key
+    // appear in the nav drawer (Stage 2) but not in the services section.
+    //
+    // All fetches run concurrently via `futures::future::join_all`.  Each
+    // individual fetch has its own timeout (see PEER_FETCH_TIMEOUT in
+    // services.rs), so the overall latency is bounded by the slowest peer, not
+    // the sum of all peers.
+    // See: https://docs.rs/futures/latest/futures/future/fn.join_all.html
+    let peer_groups = if auth_user.as_ref().map(|u| u.is_gm()).unwrap_or(false) {
+        let peers_with_keys: Vec<_> = state.peers.iter()
+            .filter(|p| p.api_key.is_some())
+            .collect();
+        futures::future::join_all(
+            peers_with_keys.iter().map(|p| crate::services::fetch_peer_services(p, &state.http_client))
+        ).await
+    } else {
+        Vec::new()
+    };
+
     let page = Index {
         auth_user,
-        services,
+        services: local_services,
+        peer_groups,
         ..state.index.clone()
     };
     Ok(Html(page.render()?))
@@ -97,7 +133,7 @@ mod tests {
 
     #[tokio::test]
     async fn index_without_notes_has_no_notes_entry() {
-        let index = Index::new(Routes::default(), false, false, false, false, &HashSet::new(), None, Arc::new([])).await.unwrap();
+        let index = Index::new(Routes::default(), false, false, false, false, false, &HashSet::new(), None, Arc::new([])).await.unwrap();
         assert!(
             !index.routes.iter().any(|r| r.href == "/notes"),
             "notes entry should be absent when has_notes=false"
@@ -106,7 +142,7 @@ mod tests {
 
     #[tokio::test]
     async fn index_with_notes_has_notes_entry() {
-        let index = Index::new(Routes::default(), true, false, false, false, &HashSet::new(), None, Arc::new([])).await.unwrap();
+        let index = Index::new(Routes::default(), true, false, false, false, false, &HashSet::new(), None, Arc::new([])).await.unwrap();
         assert!(
             index.routes.iter().any(|r| r.href == "/notes"),
             "notes entry should be present when has_notes=true"
@@ -115,14 +151,14 @@ mod tests {
 
     #[tokio::test]
     async fn index_always_has_static_entries() {
-        let index = Index::new(Routes::default(), false, false, false, false, &HashSet::new(), None, Arc::new([])).await.unwrap();
+        let index = Index::new(Routes::default(), false, false, false, false, false, &HashSet::new(), None, Arc::new([])).await.unwrap();
         assert!(index.routes.iter().any(|r| r.href == "/breaker"));
         assert!(index.routes.iter().any(|r| r.href == "/qr"));
     }
 
     #[tokio::test]
     async fn index_entries_sorted_alphabetically() {
-        let index = Index::new(Routes::default(), true, false, false, false, &HashSet::new(), None, Arc::new([])).await.unwrap();
+        let index = Index::new(Routes::default(), true, false, false, false, false, &HashSet::new(), None, Arc::new([])).await.unwrap();
         let names: Vec<&str> = index.routes.iter().map(|r| r.name.as_str()).collect();
         let mut sorted = names.clone();
         sorted.sort();
@@ -130,8 +166,26 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn index_without_recipes_has_no_recipes_entry() {
+        let index = Index::new(Routes::default(), false, false, false, false, false, &HashSet::new(), None, Arc::new([])).await.unwrap();
+        assert!(
+            !index.routes.iter().any(|r| r.href == "/recipes"),
+            "recipes entry should be absent when has_recipes=false"
+        );
+    }
+
+    #[tokio::test]
+    async fn index_with_recipes_has_recipes_entry() {
+        let index = Index::new(Routes::default(), false, true, false, false, false, &HashSet::new(), None, Arc::new([])).await.unwrap();
+        assert!(
+            index.routes.iter().any(|r| r.href == "/recipes"),
+            "recipes entry should be present when has_recipes=true"
+        );
+    }
+
+    #[tokio::test]
     async fn index_without_mqtt_devices_has_no_devices_entry() {
-        let index = Index::new(Routes::default(), false, true, false, false, &HashSet::new(), None, Arc::new([])).await.unwrap();
+        let index = Index::new(Routes::default(), false, false, true, false, false, &HashSet::new(), None, Arc::new([])).await.unwrap();
         assert!(
             !index.routes.iter().any(|r| r.href == "/mqtt/devices"),
             "mqtt devices entry should be absent when has_mqtt_devices=false"
@@ -140,7 +194,7 @@ mod tests {
 
     #[tokio::test]
     async fn index_with_mqtt_devices_has_devices_entry() {
-        let index = Index::new(Routes::default(), false, true, true, false, &HashSet::new(), None, Arc::new([])).await.unwrap();
+        let index = Index::new(Routes::default(), false, false, true, true, false, &HashSet::new(), None, Arc::new([])).await.unwrap();
         assert!(
             index.routes.iter().any(|r| r.href == "/mqtt/devices"),
             "mqtt devices entry should be present when has_mqtt_devices=true"
@@ -149,7 +203,7 @@ mod tests {
 
     #[tokio::test]
     async fn index_mqtt_devices_entry_has_expected_fields() {
-        let index = Index::new(Routes::default(), false, true, true, false, &HashSet::new(), None, Arc::new([])).await.unwrap();
+        let index = Index::new(Routes::default(), false, false, true, true, false, &HashSet::new(), None, Arc::new([])).await.unwrap();
         let entry = index.routes.iter().find(|r| r.href == "/mqtt/devices").unwrap();
         assert_eq!(entry.name, "mqtt devices");
         assert!(!entry.description.is_empty());
@@ -157,7 +211,7 @@ mod tests {
 
     #[tokio::test]
     async fn index_mqtt_devices_sorted_adjacent_to_mqtt() {
-        let index = Index::new(Routes::default(), false, true, true, false, &HashSet::new(), None, Arc::new([])).await.unwrap();
+        let index = Index::new(Routes::default(), false, false, true, true, false, &HashSet::new(), None, Arc::new([])).await.unwrap();
         let names: Vec<&str> = index.routes.iter().map(|r| r.name.as_str()).collect();
         let mqtt_pos = names.iter().position(|&n| n == "mqtt").unwrap();
         let devices_pos = names.iter().position(|&n| n == "mqtt devices").unwrap();
@@ -172,7 +226,7 @@ mod tests {
         )
         .unwrap();
         let service_urls: HashSet<String> = ["https://grafana.example.com".to_string()].into();
-        let index = Index::new(routes, false, false, false, false, &service_urls, None, Arc::new([])).await.unwrap();
+        let index = Index::new(routes, false, false, false, false, false, &service_urls, None, Arc::new([])).await.unwrap();
         assert!(
             !index.routes.iter().any(|r| r.href == "https://grafana.example.com"),
             "route matching a service url should be filtered out"

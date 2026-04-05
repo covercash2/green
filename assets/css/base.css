@@ -311,6 +311,11 @@
     background: rgba(255,255,255,0.06);
 }
 
+.nav-drawer-link-peer {
+    border-top: 1px solid rgba(0, 255, 0, 0.15);
+    color: var(--color-accent);
+}
+
 /* --- Auth --- */
 
 .leet-nav-user {

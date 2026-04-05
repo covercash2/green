@@ -26,5 +26,10 @@ def main [config_path: path] {
     # Run `cargo run` with full output redirection.
     # stdout  → structured JSON tracing (logs.ndjson)
     # stderr  → build output, panics, and server stderr (errors.log)
-    run-external "cargo" "run" "--" "--config-path" $config_path o>> $abs_log_file e>> $abs_error_log_file
+    #
+    # `nix develop --command` ensures the Rust toolchain from the flake dev shell is
+    # on PATH even when the calling shell did not enter `nix develop` (e.g. a plain
+    # nushell session or a setsid-detached process without direnv). Without this,
+    # `green restart` from a shell without cargo on PATH would silently fail.
+    run-external "nix" "develop" "--command" "cargo" "run" "--" "--config-path" $config_path o>> $abs_log_file e>> $abs_error_log_file
 }

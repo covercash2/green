@@ -31,7 +31,11 @@
         <div class="nav-drawer" id="nav-drawer" aria-hidden="true">
             <nav class="nav-drawer-links">
             {% for link in nav_links %}
+                {% if !link.is_gm %}
                 <a href="{{ link.href }}" class="nav-drawer-link">{{ link.name }}</a>
+                {% else %}{% if let Some(user) = auth_user %}{% if user.is_gm() %}
+                <a href="{{ link.href }}" class="nav-drawer-link nav-drawer-link-peer">{{ link.name }}</a>
+                {% endif %}{% endif %}{% endif %}
             {% endfor %}
             </nav>
         </div>

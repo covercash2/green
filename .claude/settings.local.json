@@ -47,7 +47,14 @@
       "Bash(deno cache:*)",
       "Bash(systemctl show:*)",
       "Bash(python3 -m json.tool)",
-      "Bash(head -15 grep -n \"^use\\\\|collections::Hash\" /home/chrash/github/covercash2/green/src/auth.rs)"
+      "Bash(head -15 grep -n \"^use\\\\|collections::Hash\" /home/chrash/github/covercash2/green/src/auth.rs)",
+      "Bash(nix eval:*)",
+      "Bash(nix-instantiate --parse /home/chrash/github/covercash2/green/flake.nix)",
+      "Bash(nix-instantiate --parse /home/chrash/github/covercash2/dotfiles/modules/green.nix)",
+      "Bash(__NEW_LINE_18b864a1954d9dcf__ for:*)",
+      "Bash(do)",
+      "Bash(perl -i -0pe 's/\\(            peers: Arc::new\\\\\\(\\\\[\\\\]\\\\\\),\\\\n\\)/$1            http_client: reqwest::Client::new\\(\\),\\\\n            peer_api_key: None,\\\\n/g' \"$file\")",
+      "Bash(done)"
     ]
   }
 }
