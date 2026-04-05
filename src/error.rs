@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use axum::{http::StatusCode, response::IntoResponse};
 use tracing_subscriber::filter::ParseError;
 
-use crate::{breaker_detail, notes};
+use crate::{breaker_detail, notes, recipes};
 
 #[derive(Debug, thiserror::Error)]
 #[error("error running green")]
@@ -15,6 +15,11 @@ pub enum Error {
     NotesStore {
         #[from]
         source: notes::NotesStoreError,
+    },
+    #[error("invalid recipe vault: {source}")]
+    RecipeStore {
+        #[from]
+        source: recipes::RecipeStoreError,
     },
     #[error("unable to deserialize TOML file `{path}`: {source}")]
     DeserializeTomlFile {
@@ -115,7 +120,8 @@ impl IntoResponse for Error {
             | Error::PrometheusEncode(_)
             | Error::BreakerStore { .. }
             | Error::Io(_)
-            | Error::NotesStore { .. } => StatusCode::INTERNAL_SERVER_ERROR,
+            | Error::NotesStore { .. }
+            | Error::RecipeStore { .. } => StatusCode::INTERNAL_SERVER_ERROR,
         };
 
         // Log server faults at error level; expected client/request errors at warn.

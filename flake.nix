@@ -347,6 +347,103 @@
               description = "Path to the Obsidian-style notes vault. If null, /notes routes return 404.";
             };
 
+            recipeVaultPath = mkOption {
+              type = types.nullOr types.path;
+              default = null;
+              example = "/var/lib/green/recipes";
+              description = "Path to a vault directory containing recipe notes (tagged `recipe` in frontmatter). If null, /recipes routes return 404.";
+            };
+
+            peers = mkOption {
+              default = [];
+              description = ''
+                Remote Green instances linked in the GM nav drawer.
+
+                When a peer has apiKey set, this machine will proxy that peer's
+                /api/services response onto the home page (GM-only). The peer must
+                have peerApiKey set to the same value in its own configuration.
+
+                Store the actual key value in sops-nix and inject it at runtime via
+                the GREEN_PEER_API_KEY environment variable rather than embedding it
+                here (which would put it in the Nix store).
+              '';
+              type = types.listOf (types.submodule {
+                options = {
+                  name = mkOption {
+                    type = types.str;
+                    description = "Human-readable name shown in the nav (e.g. \"orion\").";
+                  };
+                  url = mkOption {
+                    type = types.str;
+                    description = "Full URL of the peer's Green instance (e.g. \"https://green.orion.chrash.net\").";
+                  };
+                  apiKey = mkOption {
+                    type = types.nullOr types.str;
+                    default = null;
+                    description = ''
+                      Pre-shared secret sent as X-Green-Api-Key when proxying this
+                      peer's service list. Must match the peer's peerApiKey. If null,
+                      service proxying is disabled for this peer (the peer still appears
+                      in the nav drawer).
+
+                      Do not set this to a real secret here — use GREEN_PEER_API_KEY
+                      via sops-nix EnvironmentFile instead.
+                    '';
+                  };
+                };
+              });
+            };
+
+            peerApiKey = mkOption {
+              type = types.nullOr types.str;
+              default = null;
+              description = ''
+                Pre-shared secret that peer instances must send as X-Green-Api-Key
+                when calling this machine's /api/services endpoint.
+
+                If null, inbound peer service requests are rejected (the endpoint still
+                works for GM browser sessions via cookie auth).
+
+                Do not set this to a real secret here — inject it at runtime via the
+                GREEN_PEER_API_KEY environment variable using a sops-nix EnvironmentFile
+                (same mechanism as GREEN_DB_URL).
+              '';
+            };
+
+            systemd = mkOption {
+              default = null;
+              description = "Systemd service monitoring configuration. If null, the /services dashboard is disabled.";
+              type = types.nullOr (types.submodule {
+                options = {
+                  units = mkOption {
+                    description = "Systemd units to monitor on the services dashboard.";
+                    default = [ ];
+                    type = types.listOf (types.submodule {
+                      options = {
+                        name = mkOption {
+                          type = types.str;
+                          description = ''
+                            Systemd unit name (e.g. "postgresql" or "mosquitto.service").
+                            Names without a suffix are treated as .service units by systemd.
+                          '';
+                        };
+                        iconUrl = mkOption {
+                          type = types.nullOr types.str;
+                          default = null;
+                          description = "Optional URL for an icon image shown on the services dashboard.";
+                        };
+                        url = mkOption {
+                          type = types.nullOr types.str;
+                          default = null;
+                          description = "Optional URL linking the service card to its web UI.";
+                        };
+                      };
+                    });
+                  };
+                };
+              });
+            };
+
             mqtt = mkOption {
               default = null;
               description = "MQTT broker configuration. If null, MQTT routes are disabled.";
@@ -429,9 +526,9 @@
                     default = null;
                     example = "/run/secrets/green-db-url";
                     description = ''
-                      Path to a file containing <literal>GREEN_DB_URL=postgres://...</literal>.
-                      When set, this overrides <option>dbUrl</option> at runtime so that
-                      credentials never appear in the Nix store.
+                      Path to a file containing GREEN_DB_URL=postgres://...
+                      When set, this overrides dbUrl at runtime so that credentials
+                      never appear in the Nix store.
                     '';
                   };
                 };
@@ -459,8 +556,27 @@
               log_level = "${cfg.logLevel}"
               ca_path = "${cfg.caPath}"
               ${lib.optionalString (cfg.vaultPath != null) "vault_path = \"${cfg.vaultPath}\""}
+              ${lib.optionalString (cfg.recipeVaultPath != null) "recipe_vault_path = \"${cfg.recipeVaultPath}\""}
 
               ${lib.concatStringsSep "\n" (lib.mapAttrsToList (k: v: "[routes.${k}]\nurl = \"${v.url}\"\ndescription = \"${v.description}\"") cfg.routes)}
+
+              ${lib.concatMapStringsSep "\n" (p: ''
+              [[peers]]
+              name = "${p.name}"
+              url = "${p.url}"
+              ${lib.optionalString (p.apiKey != null) "api_key = \"${p.apiKey}\""}
+              '') cfg.peers}
+
+              ${lib.optionalString (cfg.peerApiKey != null) "peer_api_key = \"${cfg.peerApiKey}\""}
+
+              ${lib.optionalString (cfg.systemd != null) (
+                lib.concatMapStringsSep "\n" (u: ''
+                [[systemd.units]]
+                name = "${u.name}"
+                ${lib.optionalString (u.iconUrl != null) "icon_url = \"${u.iconUrl}\""}
+                ${lib.optionalString (u.url != null) "url = \"${u.url}\""}
+                '') cfg.systemd.units
+              )}
 
               ${lib.optionalString (cfg.auth != null) ''
               [auth]
@@ -530,6 +646,7 @@
                 RestrictAddressFamilies = [
                   "AF_INET"
                   "AF_INET6"
+                  "AF_UNIX"
                 ];
                 RestrictNamespaces = true;
                 RestrictRealtime = true;

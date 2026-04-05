@@ -1189,14 +1189,18 @@ mod tests {
             certificate: Arc::from(""),
             breaker_content,
             breaker_detail_store: store,
-            index: Index::new(Routes::default(), false, false, false, false, &Default::default(), None, Arc::new([])).await.unwrap(),
+            index: Index::new(Routes::default(), false, false, false, false, false, &Default::default(), None, Arc::new([])).await.unwrap(),
             tailscale_socket: Arc::from(Path::new("/tmp/fake.sock")),
             notes_store: None,
+            recipes_store: None,
             auth_state: Some(Arc::new(auth_state)),
             mqtt_state: Some(mqtt_state),
             log_config: None,
             systemd_config: None,
             nav_links: Arc::new([]),
+            peers: Arc::new([]),
+            http_client: reqwest::Client::new(),
+            peer_api_key: None,
         }
     }
 
@@ -1338,14 +1342,18 @@ mod tests {
             certificate: Arc::from(""),
             breaker_content: Arc::new(BreakerContent::new(store.as_ref())),
             breaker_detail_store: store,
-            index: Index::new(Routes::default(), false, false, false, false, &Default::default(), None, Arc::new([])).await.unwrap(),
+            index: Index::new(Routes::default(), false, false, false, false, false, &Default::default(), None, Arc::new([])).await.unwrap(),
             tailscale_socket: Arc::from(Path::new("/tmp/fake.sock")),
             notes_store: None,
+            recipes_store: None,
             auth_state: None,
             mqtt_state: Some(mqtt_state),
             log_config: None,
             systemd_config: None,
             nav_links: Arc::new([]),
+            peers: Arc::new([]),
+            http_client: reqwest::Client::new(),
+            peer_api_key: None,
         };
         let app = Router::new()
             .route("/metrics", get(metrics_route))

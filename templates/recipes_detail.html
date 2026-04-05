@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+
+{% block styles %}
+<link rel="stylesheet" href="/assets/css/recipes.css?v={{ version }}">
+{% endblock %}
+
+{% block title %}{{ title }}{% endblock %}
+
+{% block content %}
+<a href="/recipes" class="leet-link">&larr; recipes</a>
+<div class="recipes-meta">
+    <span class="recipes-category">{{ category }}</span>
+    {% if let Some(s) = servings %}<span class="recipes-meta-item"><span class="recipes-meta-key">serves</span> {{ s }}</span>{% endif %}
+    {% if let Some(p) = prep_time %}<span class="recipes-meta-item"><span class="recipes-meta-key">prep</span> {{ p }}</span>{% endif %}
+    {% if let Some(c) = cook_time %}<span class="recipes-meta-item"><span class="recipes-meta-key">cook</span> {{ c }}</span>{% endif %}
+</div>
+<div class="prose recipes-detail">
+    {{ content|safe }}
+</div>
+{% endblock %}
