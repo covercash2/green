@@ -297,7 +297,12 @@ impl FromRequestParts<ServerState> for GmOrPeer {
 pub async fn fetch_peer_services(peer: &PeerInfo, client: &reqwest::Client) -> PeerServiceGroup {
     let Some(ref api_key) = peer.api_key else {
         // No key configured — caller should not have called us, but be safe.
-        return PeerServiceGroup { name: peer.name.clone(), url: peer.url.clone(), online: false, services: Vec::new() };
+        return PeerServiceGroup {
+            name: peer.name.clone(),
+            url: peer.url.clone(),
+            online: false,
+            services: Vec::new(),
+        };
     };
 
     let endpoint = format!("{}/api/services", peer.url.trim_end_matches('/'));
@@ -316,18 +321,33 @@ pub async fn fetch_peer_services(peer: &PeerInfo, client: &reqwest::Client) -> P
 
     let offline = |reason: &str| {
         tracing::warn!(peer = %peer.name, reason, "peer service fetch failed");
-        PeerServiceGroup { name: peer.name.clone(), url: peer.url.clone(), online: false, services: Vec::new() }
+        PeerServiceGroup {
+            name: peer.name.clone(),
+            url: peer.url.clone(),
+            online: false,
+            services: Vec::new(),
+        }
     };
 
     match result {
         Err(_timeout) => offline("timeout"),
         Ok(Err(e)) => {
             tracing::warn!(peer = %peer.name, error = %e, "peer service request error");
-            PeerServiceGroup { name: peer.name.clone(), url: peer.url.clone(), online: false, services: Vec::new() }
+            PeerServiceGroup {
+                name: peer.name.clone(),
+                url: peer.url.clone(),
+                online: false,
+                services: Vec::new(),
+            }
         }
         Ok(Ok(response)) if !response.status().is_success() => {
             tracing::warn!(peer = %peer.name, status = %response.status(), "peer service non-2xx response");
-            PeerServiceGroup { name: peer.name.clone(), url: peer.url.clone(), online: false, services: Vec::new() }
+            PeerServiceGroup {
+                name: peer.name.clone(),
+                url: peer.url.clone(),
+                online: false,
+                services: Vec::new(),
+            }
         }
         Ok(Ok(response)) => match response.json::<Vec<ServiceStatus>>().await {
             Ok(services) => PeerServiceGroup {
@@ -338,7 +358,12 @@ pub async fn fetch_peer_services(peer: &PeerInfo, client: &reqwest::Client) -> P
             },
             Err(e) => {
                 tracing::warn!(peer = %peer.name, error = %e, "peer service JSON parse error");
-                PeerServiceGroup { name: peer.name.clone(), url: peer.url.clone(), online: false, services: Vec::new() }
+                PeerServiceGroup {
+                    name: peer.name.clone(),
+                    url: peer.url.clone(),
+                    online: false,
+                    services: Vec::new(),
+                }
             }
         },
     }
@@ -355,7 +380,12 @@ const PROPERTIES: &str =
 ///
 /// Unknown keys are silently ignored so this stays forward-compatible with
 /// additional properties being added to the query.
-pub fn parse_systemctl_output(name: &str, output: &str, icon_url: Option<String>, url: Option<String>) -> ServiceStatus {
+pub fn parse_systemctl_output(
+    name: &str,
+    output: &str,
+    icon_url: Option<String>,
+    url: Option<String>,
+) -> ServiceStatus {
     let mut description = String::new();
     let mut load_state = String::new();
     let mut active_state = String::new();
@@ -371,10 +401,10 @@ pub fn parse_systemctl_output(name: &str, output: &str, icon_url: Option<String>
                 "ActiveState" => active_state = value.to_owned(),
                 "SubState" => sub_state = value.to_owned(),
                 "MainPID" => {
-                    if let Ok(n) = value.parse::<u32>() {
-                        if n > 0 {
-                            pid = Some(n);
-                        }
+                    if let Ok(n) = value.parse::<u32>()
+                        && n > 0
+                    {
+                        pid = Some(n);
                     }
                 }
                 "ExecMainStartTimestamp" if !value.is_empty() => {
@@ -386,7 +416,18 @@ pub fn parse_systemctl_output(name: &str, output: &str, icon_url: Option<String>
     }
 
     let health = derive_health(&load_state, &active_state, &sub_state);
-    ServiceStatus { name: name.to_owned(), description, load_state, active_state, sub_state, pid, since, health, icon_url, url }
+    ServiceStatus {
+        name: name.to_owned(),
+        description,
+        load_state,
+        active_state,
+        sub_state,
+        pid,
+        since,
+        health,
+        icon_url,
+        url,
+    }
 }
 
 fn derive_health(load_state: &str, active_state: &str, sub_state: &str) -> Health {
@@ -410,7 +451,12 @@ async fn query_unit(unit: &UnitConfig) -> ServiceStatus {
         .await;
 
     match result {
-        Ok(out) => parse_systemctl_output(&unit.name, &String::from_utf8_lossy(&out.stdout), unit.icon_url.clone(), unit.url.clone()),
+        Ok(out) => parse_systemctl_output(
+            &unit.name,
+            &String::from_utf8_lossy(&out.stdout),
+            unit.icon_url.clone(),
+            unit.url.clone(),
+        ),
         Err(e) => {
             tracing::warn!(unit = %unit.name, error = %e, "systemctl query failed");
             ServiceStatus {
@@ -431,7 +477,7 @@ async fn query_unit(unit: &UnitConfig) -> ServiceStatus {
 
 /// Query all configured units concurrently.
 pub async fn query_all(config: &SystemdConfig) -> Vec<ServiceStatus> {
-    futures::future::join_all(config.units.iter().map(|u| query_unit(u))).await
+    futures::future::join_all(config.units.iter().map(query_unit)).await
 }
 
 // ─── Templates ───────────────────────────────────────────────────────────────
@@ -448,7 +494,10 @@ struct ServicesPage {
 // ─── Handlers ────────────────────────────────────────────────────────────────
 
 fn auth_user_info(user: &AuthUser) -> AuthUserInfo {
-    AuthUserInfo { username: user.username.clone(), role: user.role.clone() }
+    AuthUserInfo {
+        username: user.username.clone(),
+        role: user.role.clone(),
+    }
 }
 
 /// `GET /services` — service status dashboard (GM only).

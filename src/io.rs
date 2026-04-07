@@ -56,7 +56,9 @@ mod tests {
 
     #[tokio::test]
     async fn read_file_missing_returns_file_read_error() {
-        let err = read_file("/nonexistent/green_no_such_file.txt").await.unwrap_err();
+        let err = read_file("/nonexistent/green_no_such_file.txt")
+            .await
+            .unwrap_err();
         assert!(matches!(err, IoError::FileRead { .. }));
     }
 

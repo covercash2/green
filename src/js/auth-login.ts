@@ -62,7 +62,7 @@ if (typeof document !== 'undefined') {
     const btn = document.getElementById('auth-btn');
     if (btn) {
         const form = document.getElementById('auth-form');
-        const errEl = document.getElementById('auth-error')!;
+        const errEl = document.getElementById('auth-error') as HTMLElement;
         const next = form?.dataset.next ?? '/';
 
         btn.addEventListener('click', async () => {

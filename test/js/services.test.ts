@@ -1,4 +1,5 @@
-import { assertEquals } from "jsr:@std/assert";
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
 import { applyUpdate, escHtml, fetchStatuses, formatLastUpdated, renderCard } from "../../src/js/services.ts";
 import type { ServiceStatus } from "../../src/js/services.ts";
 
@@ -18,122 +19,116 @@ function svc(overrides: Partial<ServiceStatus> = {}): ServiceStatus {
     };
 }
 
-Deno.test("renderCard: healthy service has svc-healthy class and running label", () => {
+test("renderCard: healthy service has svc-healthy class and running label", () => {
     const html = renderCard(svc());
-    assertEquals(html.includes("svc-healthy"), true);
-    assertEquals(html.includes("● running"), true);
-    assertEquals(html.includes("postgresql"), true);
+    assert.ok(html.includes("svc-healthy"));
+    assert.ok(html.includes("● running"));
+    assert.ok(html.includes("postgresql"));
 });
 
-Deno.test("renderCard: failed service has svc-failed class and failed label", () => {
+test("renderCard: failed service has svc-failed class and failed label", () => {
     const html = renderCard(svc({ health: "failed", active_state: "failed", sub_state: "failed", pid: null, since: null }));
-    assertEquals(html.includes("svc-failed"), true);
-    assertEquals(html.includes("✕ failed"), true);
+    assert.ok(html.includes("svc-failed"));
+    assert.ok(html.includes("✕ failed"));
 });
 
-Deno.test("renderCard: inactive service has svc-inactive class", () => {
+test("renderCard: inactive service has svc-inactive class", () => {
     const html = renderCard(svc({ health: "inactive", active_state: "inactive", sub_state: "dead", pid: null, since: null }));
-    assertEquals(html.includes("svc-inactive"), true);
-    assertEquals(html.includes("○ inactive"), true);
+    assert.ok(html.includes("svc-inactive"));
+    assert.ok(html.includes("○ inactive"));
 });
 
-Deno.test("renderCard: degraded service has svc-degraded class", () => {
+test("renderCard: degraded service has svc-degraded class", () => {
     const html = renderCard(svc({ health: "degraded", active_state: "active", sub_state: "exited", pid: null }));
-    assertEquals(html.includes("svc-degraded"), true);
-    assertEquals(html.includes("● exited"), true);
+    assert.ok(html.includes("svc-degraded"));
+    assert.ok(html.includes("● exited"));
 });
 
-Deno.test("renderCard: shows pid when present", () => {
+test("renderCard: shows pid when present", () => {
     const html = renderCard(svc({ pid: 9999 }));
-    assertEquals(html.includes("9999"), true);
+    assert.ok(html.includes("9999"));
 });
 
-Deno.test("renderCard: omits pid row when null", () => {
+test("renderCard: omits pid row when null", () => {
     const html = renderCard(svc({ pid: null }));
-    assertEquals(html.includes(">pid<"), false);
+    assert.ok(!html.includes(">pid<"));
 });
 
-Deno.test("renderCard: omits since row when null", () => {
+test("renderCard: omits since row when null", () => {
     const html = renderCard(svc({ since: null }));
-    assertEquals(html.includes(">since<"), false);
+    assert.ok(!html.includes(">since<"));
 });
 
-Deno.test("renderCard: omits description div when empty", () => {
+test("renderCard: omits description div when empty", () => {
     const html = renderCard(svc({ description: "" }));
-    assertEquals(html.includes("svc-description"), false);
+    assert.ok(!html.includes("svc-description"));
 });
 
-Deno.test("renderCard: escapes HTML in name and description", () => {
+test("renderCard: escapes HTML in name and description", () => {
     const html = renderCard(svc({ name: "<evil>", description: '<script>alert(1)</script>' }));
-    assertEquals(html.includes("<evil>"), false);
-    assertEquals(html.includes("<script>"), false);
-    assertEquals(html.includes("&lt;evil&gt;"), true);
-    assertEquals(html.includes("&lt;script&gt;"), true);
+    assert.ok(!html.includes("<evil>"));
+    assert.ok(!html.includes("<script>"));
+    assert.ok(html.includes("&lt;evil&gt;"));
+    assert.ok(html.includes("&lt;script&gt;"));
 });
 
-Deno.test("renderCard: name is a link when url is set", () => {
+test("renderCard: name is a link when url is set", () => {
     const html = renderCard(svc({ url: "https://example.com" }));
-    assertEquals(html.includes(`href="https://example.com"`), true);
-    assertEquals(html.includes("svc-link"), true);
+    assert.ok(html.includes(`href="https://example.com"`));
+    assert.ok(html.includes("svc-link"));
 });
 
-Deno.test("renderCard: name is a span when url is null", () => {
+test("renderCard: name is a span when url is null", () => {
     const html = renderCard(svc({ url: null }));
-    assertEquals(html.includes(`href=`), false);
+    assert.ok(!html.includes(`href=`));
 });
 
-Deno.test("renderCard: renders icon img when icon_url is set", () => {
+test("renderCard: renders icon img when icon_url is set", () => {
     const html = renderCard(svc({ icon_url: "https://example.com/icon.svg" }));
-    assertEquals(html.includes(`src="https://example.com/icon.svg"`), true);
-    assertEquals(html.includes("svc-icon"), true);
+    assert.ok(html.includes(`src="https://example.com/icon.svg"`));
+    assert.ok(html.includes("svc-icon"));
 });
 
-Deno.test("renderCard: uses fallback icon when icon_url is null", () => {
+test("renderCard: uses fallback icon when icon_url is null", () => {
     const html = renderCard(svc({ icon_url: null }));
-    assertEquals(html.includes("svc-icon"), true);
-    assertEquals(html.includes("/assets/img/service.svg"), true);
+    assert.ok(html.includes("svc-icon"));
+    assert.ok(html.includes("/assets/img/service.svg"));
 });
 
-Deno.test("escHtml: encodes all five special characters", () => {
-    assertEquals(escHtml(`<>&"'`), "&lt;&gt;&amp;&quot;&#x27;");
+test("escHtml: encodes all five special characters", () => {
+    assert.equal(escHtml(`<>&"'`), "&lt;&gt;&amp;&quot;&#x27;");
 });
 
-Deno.test("escHtml: leaves safe strings unchanged", () => {
-    assertEquals(escHtml("hello world"), "hello world");
+test("escHtml: leaves safe strings unchanged", () => {
+    assert.equal(escHtml("hello world"), "hello world");
 });
 
-Deno.test("formatLastUpdated: returns a non-empty string", () => {
+test("formatLastUpdated: returns a non-empty string", () => {
     const result = formatLastUpdated(new Date("2026-03-29T10:48:00Z"));
-    assertEquals(typeof result, "string");
-    assertEquals(result.length > 0, true);
+    assert.equal(typeof result, "string");
+    assert.ok(result.length > 0);
 });
 
-Deno.test("fetchStatuses: returns parsed statuses from fetch", async () => {
+test("fetchStatuses: returns parsed statuses from fetch", async () => {
     const statuses = [svc(), svc({ name: "mosquitto", health: "inactive" })];
     const mockFetch = (_url: string) =>
         Promise.resolve(new Response(JSON.stringify(statuses), { status: 200 }));
     const result = await fetchStatuses(mockFetch as typeof fetch);
-    assertEquals(result.length, 2);
-    assertEquals(result[0].name, "postgresql");
-    assertEquals(result[1].health, "inactive");
+    assert.equal(result.length, 2);
+    assert.equal(result[0].name, "postgresql");
+    assert.equal(result[1].health, "inactive");
 });
 
-Deno.test("fetchStatuses: throws on non-200 response", async () => {
+test("fetchStatuses: throws on non-200 response", async () => {
     const mockFetch = (_url: string) =>
         Promise.resolve(new Response("", { status: 403 }));
-    let threw = false;
-    try {
-        await fetchStatuses(mockFetch as typeof fetch);
-    } catch {
-        threw = true;
-    }
-    assertEquals(threw, true);
+    await assert.rejects(() => fetchStatuses(mockFetch as typeof fetch));
 });
 
-Deno.test("applyUpdate: sets grid innerHTML and updates timestamp", () => {
+test("applyUpdate: sets grid innerHTML and updates timestamp", () => {
     const grid = { innerHTML: "" } as HTMLElement;
     const lastUpdated = { textContent: "" } as HTMLElement;
     applyUpdate(grid, lastUpdated, [svc()]);
-    assertEquals(grid.innerHTML.includes("svc-card"), true);
-    assertEquals(lastUpdated.textContent!.length > 0, true);
+    assert.ok(grid.innerHTML.includes("svc-card"));
+    assert.ok(lastUpdated.textContent?.length > 0);
 });

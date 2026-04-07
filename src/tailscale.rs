@@ -5,7 +5,12 @@ use axum::{extract::State, response::Html};
 use serde::Deserialize;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
-use crate::{auth::{AuthUserInfo, GmUser}, error::Error, index::NavLink, ServerState};
+use crate::{
+    ServerState,
+    auth::{AuthUserInfo, GmUser},
+    error::Error,
+    index::NavLink,
+};
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "PascalCase")]
@@ -181,13 +186,19 @@ mod tests {
     #[test]
     fn fmt_bytes_mib_range() {
         assert_eq!(TailscalePeer::fmt_bytes(1024 * 1024), "1.0 MiB");
-        assert_eq!(TailscalePeer::fmt_bytes(1024 * 1024 * 1024 - 1), "1024.0 MiB");
+        assert_eq!(
+            TailscalePeer::fmt_bytes(1024 * 1024 * 1024 - 1),
+            "1024.0 MiB"
+        );
     }
 
     #[test]
     fn fmt_bytes_gib_range() {
         assert_eq!(TailscalePeer::fmt_bytes(1024 * 1024 * 1024), "1.0 GiB");
-        assert_eq!(TailscalePeer::fmt_bytes(10 * 1024 * 1024 * 1024), "10.0 GiB");
+        assert_eq!(
+            TailscalePeer::fmt_bytes(10 * 1024 * 1024 * 1024),
+            "10.0 GiB"
+        );
     }
 
     // ── rx_str / tx_str ───────────────────────────────────────────────────────
@@ -231,13 +242,19 @@ mod tests {
 
     #[test]
     fn is_online_true() {
-        let peer = TailscalePeer { online: Some(true), ..Default::default() };
+        let peer = TailscalePeer {
+            online: Some(true),
+            ..Default::default()
+        };
         assert!(peer.is_online());
     }
 
     #[test]
     fn is_online_false() {
-        let peer = TailscalePeer { online: Some(false), ..Default::default() };
+        let peer = TailscalePeer {
+            online: Some(false),
+            ..Default::default()
+        };
         assert!(!peer.is_online());
     }
 
@@ -255,25 +272,37 @@ mod tests {
 
     #[test]
     fn flags_active() {
-        let peer = TailscalePeer { active: Some(true), ..Default::default() };
+        let peer = TailscalePeer {
+            active: Some(true),
+            ..Default::default()
+        };
         assert!(peer.flags().contains(&"active"));
     }
 
     #[test]
     fn flags_exit_node() {
-        let peer = TailscalePeer { exit_node: Some(true), ..Default::default() };
+        let peer = TailscalePeer {
+            exit_node: Some(true),
+            ..Default::default()
+        };
         assert!(peer.flags().contains(&"exit node"));
     }
 
     #[test]
     fn flags_exit_node_option() {
-        let peer = TailscalePeer { exit_node_option: Some(true), ..Default::default() };
+        let peer = TailscalePeer {
+            exit_node_option: Some(true),
+            ..Default::default()
+        };
         assert!(peer.flags().contains(&"exit node option"));
     }
 
     #[test]
     fn flags_keep_alive() {
-        let peer = TailscalePeer { keep_alive: Some(true), ..Default::default() };
+        let peer = TailscalePeer {
+            keep_alive: Some(true),
+            ..Default::default()
+        };
         assert!(peer.flags().contains(&"keep alive"));
     }
 
@@ -346,7 +375,10 @@ mod tests {
 
     #[test]
     fn relay_str_empty_string_is_none() {
-        let peer = TailscalePeer { relay: Some(String::new()), ..Default::default() };
+        let peer = TailscalePeer {
+            relay: Some(String::new()),
+            ..Default::default()
+        };
         assert_eq!(peer.relay_str(), None);
     }
 

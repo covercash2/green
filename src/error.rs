@@ -173,7 +173,10 @@ mod tests {
 
     #[test]
     fn webauthn_is_400() {
-        assert_eq!(status(Error::WebAuthn("oops".into())), StatusCode::BAD_REQUEST);
+        assert_eq!(
+            status(Error::WebAuthn("oops".into())),
+            StatusCode::BAD_REQUEST
+        );
     }
 
     #[test]

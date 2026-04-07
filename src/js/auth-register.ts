@@ -68,7 +68,7 @@ if (typeof document !== 'undefined') {
     const btn = document.getElementById('reg-btn');
     if (btn) {
         const usernameInput = document.getElementById('username') as HTMLInputElement | null;
-        const errEl = document.getElementById('reg-error')!;
+        const errEl = document.getElementById('reg-error') as HTMLElement;
 
         btn.addEventListener('click', async () => {
             const username = usernameInput?.value.trim() ?? '';

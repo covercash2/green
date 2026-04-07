@@ -32,7 +32,7 @@ export function filterByPrefix(cards: Card[], prefix: string): Card[] {
     const lower = prefix.toLowerCase();
     return cards.filter(c => {
         const topic = (c.dataset?.topic ?? '').toLowerCase();
-        return topic === lower || topic.startsWith(lower + '/');
+        return topic === lower || topic.startsWith(`${lower}/`);
     });
 }
 
@@ -160,14 +160,14 @@ if (typeof document !== 'undefined') {
         topicBar.innerHTML = '';
 
         const allBtn = document.createElement('button');
-        allBtn.className = 'leet-btn' + (active === '' ? ' leet-btn-active' : '');
+        allBtn.className = `leet-btn${active === '' ? ' leet-btn-active' : ''}`;
         allBtn.dataset.prefix = '';
         allBtn.textContent = 'all';
         topicBar.appendChild(allBtn);
 
         for (const t of topics) {
             const btn = document.createElement('button');
-            btn.className = 'leet-btn' + (t === active ? ' leet-btn-active' : '');
+            btn.className = `leet-btn${t === active ? ' leet-btn-active' : ''}`;
             btn.dataset.prefix = t;
             btn.textContent = t;
             topicBar.appendChild(btn);
@@ -194,7 +194,11 @@ if (typeof document !== 'undefined') {
     controls?.addEventListener('click', (e) => {
         const btn = (e.target as Element).closest('[data-page]') as HTMLButtonElement | null;
         if (!btn || btn.disabled) return;
-        const page = parseInt(btn.dataset.page!, 10);
+        const page = parseInt(btn.dataset.page ?? '', 10);
+        if (!Number.isInteger(page)) {
+            console.error('pagination button missing data-page attribute', btn);
+            return;
+        }
         if (page < 0 || page >= totalCount.value) return;
         batch(() => {
             currentPage.value = page;

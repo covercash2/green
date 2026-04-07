@@ -100,7 +100,7 @@
         {% if let Some(icon) = entry.icon_url.as_ref() %}
         <img src="{{ icon }}" alt="" class="route-icon" aria-hidden="true" width="20" height="20">
         {% endif %}
-        <a href="{{ entry.href }}" class="leet-link">{{ entry.name }}</a>
+        <a href="{{ entry.href }}" class="leet-link">{{ entry.display_name() }}</a>
         <div class="leet-description">{{ entry.description }}</div>
     </li>
     {% endfor %}

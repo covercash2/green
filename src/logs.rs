@@ -15,10 +15,10 @@ use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncBufReadExt, AsyncSeekExt, BufReader};
 
 use crate::{
+    ServerState,
     auth::{AuthUserInfo, GmUser},
     error::Error,
     index::NavLink,
-    ServerState,
 };
 
 const BACKLOG_LINES: usize = 200;
@@ -60,7 +60,14 @@ pub async fn logs_app_route(
         username: user.0.username.clone(),
         role: user.0.role.clone(),
     });
-    Ok(Html(LogsAppPage { version: crate::VERSION, auth_user, nav_links: state.nav_links.clone() }.render()?))
+    Ok(Html(
+        LogsAppPage {
+            version: crate::VERSION,
+            auth_user,
+            nav_links: state.nav_links.clone(),
+        }
+        .render()?,
+    ))
 }
 
 /// GET `/logs/errors` — renders the error log page (GM only).
@@ -72,7 +79,14 @@ pub async fn logs_errors_route(
         username: user.0.username.clone(),
         role: user.0.role.clone(),
     });
-    Ok(Html(LogsErrorsPage { version: crate::VERSION, auth_user, nav_links: state.nav_links.clone() }.render()?))
+    Ok(Html(
+        LogsErrorsPage {
+            version: crate::VERSION,
+            auth_user,
+            nav_links: state.nav_links.clone(),
+        }
+        .render()?,
+    ))
 }
 
 /// Read the last `n` non-empty lines from a file, returning an empty vec on
@@ -92,7 +106,7 @@ async fn read_last_lines(path: &PathBuf, n: usize) -> Vec<String> {
 /// then polls the file for new lines, sending each as an SSE `data` event.
 fn tail_log_stream(path: PathBuf) -> impl Stream<Item = Result<Event, Infallible>> {
     let (tx, rx) = tokio::sync::mpsc::channel::<String>(128);
-    let _ = tokio::spawn(async move {
+    drop(tokio::spawn(async move {
         // Send backlog to new client.
         for line in read_last_lines(&path, BACKLOG_LINES).await {
             if tx.send(line).await.is_err() {
@@ -125,7 +139,7 @@ fn tail_log_stream(path: PathBuf) -> impl Stream<Item = Result<Event, Infallible
                 Err(_) => return,
             }
         }
-    });
+    }));
     futures::stream::unfold(rx, |mut rx| async move {
         rx.recv().await.map(|l| (Ok(Event::default().data(l)), rx))
     })

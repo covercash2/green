@@ -16,7 +16,7 @@ dev:
 ### check
 
 # run Rust tests with nextest
-test:
+test-rust:
   cargo nextest run
 
 # compile TS → assets/js/ (commit the output)
@@ -39,12 +39,20 @@ js-coverage:
 css-check:
   deno test --no-check --allow-read test/css/
 
+# run all tests (Rust + JS + CSS)
+test: test-rust js-coverage css-check
+
+lint-rust:
+  cargo fmt --check
+  cargo clippy -- -D warnings
+
 # lint JS/TS with biome
 lint-js:
   biome lint src/js/ test/js/
 
-# run all tests (Rust + JS + CSS)
-test-all: test js-coverage css-check
+lint:
+  just lint-rust
+  just lint-js
 
 # Minimum acceptable line coverage percentage.
 # Changing this here affects both `just coverage` and `nix flake check`.
@@ -68,7 +76,7 @@ check-flake:
   nix flake check
 
 # run all the checks (tests + flake)
-check: test check-flake
+check: lint test check-flake
 
 ### hooks
 
