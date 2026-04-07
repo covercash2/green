@@ -21,7 +21,7 @@
     unused_parens,
     unused_qualifications,
     unused_results,
-    while_true,
+    while_true
 )]
 use std::{
     net::SocketAddr,
@@ -37,7 +37,10 @@ use route::Routes;
 use serde::{Deserialize, Serialize};
 use tower_http::{services::ServeDir, trace::TraceLayer};
 
-use crate::{error::Error, index::{Index, NavLink}};
+use crate::{
+    error::Error,
+    index::{Index, NavLink},
+};
 
 mod auth;
 mod breaker;
@@ -270,7 +273,10 @@ impl ServerState {
         let has_notes = notes_store.is_some();
         let has_recipes = recipes_store.is_some();
         let has_mqtt = config.mqtt.is_some();
-        let has_mqtt_devices = config.mqtt.as_ref().map_or(false, |m| !m.integrations.is_empty());
+        let has_mqtt_devices = config
+            .mqtt
+            .as_ref()
+            .is_some_and(|m| !m.integrations.is_empty());
         let has_logs = config.log_config.is_some();
         let service_urls: std::collections::HashSet<String> = config
             .systemd
@@ -278,20 +284,68 @@ impl ServerState {
             .map(|s| s.units.iter().filter_map(|u| u.url.clone()).collect())
             .unwrap_or_default();
         let nav_links: Arc<[NavLink]> = {
-            let mut links = vec![
-                NavLink { name: "home".into(), href: "/".into(), is_gm: false },
-            ];
-            if has_mqtt { links.push(NavLink { name: "mqtt".into(), href: "/mqtt".into(), is_gm: false }); }
-            if has_notes { links.push(NavLink { name: "notes".into(), href: "/notes".into(), is_gm: false }); }
-            if has_recipes { links.push(NavLink { name: "recipes".into(), href: "/recipes".into(), is_gm: false }); }
-            links.push(NavLink { name: "breaker".into(), href: "/breaker".into(), is_gm: false });
-            links.push(NavLink { name: "tailscale".into(), href: "/tailscale".into(), is_gm: false });
+            let mut links = vec![NavLink {
+                name: "home".into(),
+                href: "/".into(),
+                is_gm: false,
+            }];
+            if has_mqtt {
+                links.push(NavLink {
+                    name: "mqtt".into(),
+                    href: "/mqtt".into(),
+                    is_gm: false,
+                });
+            }
+            if has_notes {
+                links.push(NavLink {
+                    name: "notes".into(),
+                    href: "/notes".into(),
+                    is_gm: false,
+                });
+            }
+            if has_recipes {
+                links.push(NavLink {
+                    name: "recipes".into(),
+                    href: "/recipes".into(),
+                    is_gm: false,
+                });
+            }
+            links.push(NavLink {
+                name: "breaker".into(),
+                href: "/breaker".into(),
+                is_gm: false,
+            });
+            links.push(NavLink {
+                name: "tailscale".into(),
+                href: "/tailscale".into(),
+                is_gm: false,
+            });
             for peer in &config.peers {
-                links.push(NavLink { name: peer.name.clone(), href: peer.url.clone(), is_gm: true });
+                links.push(NavLink {
+                    name: peer.name.clone(),
+                    href: peer.url.clone(),
+                    is_gm: true,
+                });
             }
             links.into()
         };
-        let index = Index::new(config.routes.clone(), has_notes, has_recipes, has_mqtt, has_mqtt_devices, has_logs, &service_urls, config.logo_url.clone(), nav_links.clone()).await?;
+        let optional_entries = [
+            has_notes.then_some(index::OptionalEntry::Notes),
+            has_recipes.then_some(index::OptionalEntry::Recipes),
+            has_mqtt.then_some(index::OptionalEntry::Mqtt),
+            has_mqtt_devices.then_some(index::OptionalEntry::MqttDevices),
+            has_logs.then_some(index::OptionalEntry::Logs),
+        ]
+        .into_iter()
+        .flatten();
+        let index = Index::new(
+            config.routes.clone(),
+            optional_entries,
+            &service_urls,
+            config.logo_url.clone(),
+            nav_links.clone(),
+        )
+        .await?;
 
         let store = Arc::new(BreakerStore::from_data(breaker_data)?);
         let breaker_content = Arc::new(breaker::BreakerContent::new(store.as_ref()));
@@ -315,24 +369,38 @@ impl ServerState {
             let task_recent = Arc::clone(&recent_messages);
             let (mqtt_client, eventloop) = mqtt::setup_mqtt_client(mqtt_config);
             let publish_client = mqtt_client.clone();
-            let _ = tokio::spawn(async move {
-                mqtt::run_mqtt_task(task_config, mqtt_client, eventloop, task_tx, task_status_tx, task_recent).await;
+            drop(tokio::spawn(async move {
+                mqtt::run_mqtt_task(
+                    task_config,
+                    mqtt_client,
+                    eventloop,
+                    task_tx,
+                    task_status_tx,
+                    task_recent,
+                )
+                .await;
                 tracing::error!("mqtt task exited unexpectedly");
-            });
+            }));
 
             // Build Prometheus state when integrations are configured.
             let parsed_integrations = Arc::new(mqtt::parse_integrations(&mqtt_config.integrations));
             let prometheus = if !parsed_integrations.is_empty() {
                 let registry = prometheus::Registry::new();
                 let messages_total = prometheus::IntCounterVec::new(
-                    prometheus::opts!("mqtt_messages_total", "MQTT messages by integration and device"),
+                    prometheus::opts!(
+                        "mqtt_messages_total",
+                        "MQTT messages by integration and device"
+                    ),
                     &["integration", "device"],
                 )
                 .map_err(|e| Error::AuthSetup(format!("prometheus counter: {e}")))?;
                 registry
                     .register(Box::new(messages_total.clone()))
                     .map_err(|e| Error::AuthSetup(format!("prometheus register: {e}")))?;
-                Some(mqtt::PrometheusState { registry, messages_total })
+                Some(mqtt::PrometheusState {
+                    registry,
+                    messages_total,
+                })
             } else {
                 None
             };
@@ -341,14 +409,13 @@ impl ServerState {
             if let (false, Some(auth)) = (parsed_integrations.is_empty(), &auth_state) {
                 let tracker_rx = tx.subscribe();
                 let tracker_db = auth.db.clone();
-                let tracker_metrics =
-                    prometheus.as_ref().map(|p| p.messages_total.clone());
-                let _ = tokio::spawn(mqtt::run_device_tracker_task(
+                let tracker_metrics = prometheus.as_ref().map(|p| p.messages_total.clone());
+                drop(tokio::spawn(mqtt::run_device_tracker_task(
                     Arc::clone(&parsed_integrations),
                     tracker_db,
                     tracker_metrics,
                     tracker_rx,
-                ));
+                )));
             }
 
             Some(Arc::new(mqtt::MqttState {
@@ -648,11 +715,7 @@ pub(crate) mod tests {
         let breaker_content = Arc::new(BreakerContent::new(store.as_ref()));
         let index = Index::new(
             Routes::default(),
-            false,
-            false,
-            false,
-            false,
-            false,
+            std::iter::empty::<index::OptionalEntry>(),
             &HashSet::new(),
             None,
             Arc::new([]),

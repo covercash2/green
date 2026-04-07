@@ -9,7 +9,12 @@ use axum::{
 use qrcode::{QrCode, render::svg};
 use serde::Deserialize;
 
-use crate::{ServerState, auth::{AuthUserInfo, MaybeAuthUser}, error::Error, index::NavLink};
+use crate::{
+    ServerState,
+    auth::{AuthUserInfo, MaybeAuthUser},
+    error::Error,
+    index::NavLink,
+};
 
 #[derive(Debug, Clone, Template)]
 #[template(path = "qr.html")]
@@ -54,10 +59,10 @@ pub async fn qr_route(Json(params): Json<QrParams>) -> Result<impl IntoResponse,
 mod tests {
     use super::*;
     use axum::{
+        Router,
         body::Body,
         http::{Request, StatusCode},
         routing::{get, post},
-        Router,
     };
     use tower::ServiceExt;
 
@@ -69,7 +74,10 @@ mod tests {
             index::Index,
             route::Routes,
         };
-        use std::{collections::{HashMap, HashSet}, sync::Arc};
+        use std::{
+            collections::{HashMap, HashSet},
+            sync::Arc,
+        };
 
         let store = Arc::new(
             BreakerStore::from_data(BreakerData {
@@ -85,10 +93,16 @@ mod tests {
             certificate: Arc::from(""),
             breaker_content,
             breaker_detail_store: store,
-            index: Index::new(Routes::default(), false, false, false, false, false, &HashSet::new(), None, Arc::new([])).await.unwrap(),
-            tailscale_socket: Arc::from(std::path::Path::new(
-                "/run/tailscale/tailscaled.sock",
-            )),
+            index: Index::new(
+                Routes::default(),
+                std::iter::empty::<crate::index::OptionalEntry>(),
+                &HashSet::new(),
+                None,
+                Arc::new([]),
+            )
+            .await
+            .unwrap(),
+            tailscale_socket: Arc::from(std::path::Path::new("/run/tailscale/tailscaled.sock")),
             notes_store: None,
             recipes_store: None,
             auth_state: None,
@@ -115,7 +129,9 @@ mod tests {
             .method("POST")
             .uri("/qr")
             .header("content-type", "application/json")
-            .body(json_body(serde_json::json!({"data": "https://example.com"})))
+            .body(json_body(
+                serde_json::json!({"data": "https://example.com"}),
+            ))
             .unwrap();
         let resp = app.oneshot(req).await.unwrap();
         assert_eq!(resp.status(), StatusCode::OK);
@@ -132,7 +148,9 @@ mod tests {
             .body(json_body(serde_json::json!({"data": "hello"})))
             .unwrap();
         let resp = app.oneshot(req).await.unwrap();
-        let bytes = axum::body::to_bytes(resp.into_body(), 1 << 20).await.unwrap();
+        let bytes = axum::body::to_bytes(resp.into_body(), 1 << 20)
+            .await
+            .unwrap();
         let svg = std::str::from_utf8(&bytes).unwrap();
         assert!(svg.contains("<svg"), "response should be an SVG document");
         assert!(svg.contains("</svg>"));
@@ -153,7 +171,9 @@ mod tests {
             .unwrap();
         let resp = app.oneshot(req).await.unwrap();
         assert_eq!(resp.status(), StatusCode::OK);
-        let bytes = axum::body::to_bytes(resp.into_body(), 1 << 20).await.unwrap();
+        let bytes = axum::body::to_bytes(resp.into_body(), 1 << 20)
+            .await
+            .unwrap();
         let html = std::str::from_utf8(&bytes).unwrap();
         assert!(html.contains("<!DOCTYPE html") || html.contains("<html"));
     }

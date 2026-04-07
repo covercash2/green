@@ -91,8 +91,8 @@ if (typeof document !== 'undefined') {
         return {
             get wasOpen() { return el.hasAttribute('data-panel-open'); },
             closeAll() {
-                document.querySelectorAll('.device-panel-row').forEach(p => p.remove());
-                document.querySelectorAll('[data-panel-open]').forEach(r => r.removeAttribute('data-panel-open'));
+                document.querySelectorAll('.device-panel-row').forEach(p => { p.remove(); });
+                document.querySelectorAll('[data-panel-open]').forEach(r => { r.removeAttribute('data-panel-open'); });
             },
             markOpen() { el.setAttribute('data-panel-open', ''); },
             isStillOpen() { return el.hasAttribute('data-panel-open'); },

@@ -13,7 +13,12 @@ use axum::{
 };
 use serde::Deserialize;
 
-use crate::{ServerState, VERSION, auth::{AuthUserInfo, MaybeAuthUser, Role}, error::Error, index::NavLink};
+use crate::{
+    ServerState, VERSION,
+    auth::{AuthUserInfo, MaybeAuthUser, Role},
+    error::Error,
+    index::NavLink,
+};
 
 // ─── Slug ─────────────────────────────────────────────────────────────────────
 
@@ -197,12 +202,12 @@ pub(crate) fn escape_html(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     for ch in s.chars() {
         match ch {
-            '&'  => out.push_str("&amp;"),
-            '<'  => out.push_str("&lt;"),
-            '>'  => out.push_str("&gt;"),
-            '"'  => out.push_str("&quot;"),
+            '&' => out.push_str("&amp;"),
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            '"' => out.push_str("&quot;"),
             '\'' => out.push_str("&#x27;"),
-            c    => out.push(c),
+            c => out.push(c),
         }
     }
     out
@@ -331,9 +336,7 @@ pub(crate) fn split_on_secret_paragraphs(text: &str) -> Vec<(String, bool)> {
 pub(crate) fn render_markdown(md: &str) -> RenderedHtml {
     use pulldown_cmark::{Event, Options, Parser, html};
 
-    let opts = Options::ENABLE_TABLES
-        | Options::ENABLE_STRIKETHROUGH
-        | Options::ENABLE_TASKLISTS;
+    let opts = Options::ENABLE_TABLES | Options::ENABLE_STRIKETHROUGH | Options::ENABLE_TASKLISTS;
     let parser = Parser::new_ext(md, opts).map(|event| match event {
         // Treat raw HTML as plain text so pulldown-cmark escapes it on output.
         Event::Html(raw) | Event::InlineHtml(raw) => Event::Text(raw),
@@ -441,9 +444,7 @@ impl NotesStore {
                 .and_then(|s| s.to_str())
                 .unwrap_or_default();
             let slug = Slug::from_stem(stem);
-            let title = fm
-                .title
-                .unwrap_or_else(|| stem.replace('-', " ").replace('_', " "));
+            let title = fm.title.unwrap_or_else(|| stem.replace(['-', '_'], " "));
 
             let resolved = resolve_wiki_links(body, &slug_set, "/notes/");
 
@@ -561,7 +562,10 @@ pub async fn notes_detail_route(
 ) -> Result<Html<String>, Error> {
     let store: &Arc<NotesStore> = state.notes_store.as_ref().ok_or(Error::NotFound)?;
     let note = store.get(&slug).ok_or(Error::NotFound)?;
-    let is_gm = auth_user.as_ref().map(|u| u.role == Role::Gm).unwrap_or(false);
+    let is_gm = auth_user
+        .as_ref()
+        .map(|u| u.role == Role::Gm)
+        .unwrap_or(false);
     let content = if is_gm {
         note.html_gm.as_str().to_owned()
     } else {
@@ -582,7 +586,11 @@ pub async fn notes_detail_route(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use axum::{body::Body, http::{Request, StatusCode}, routing::get};
+    use axum::{
+        body::Body,
+        http::{Request, StatusCode},
+        routing::get,
+    };
     use tower::ServiceExt;
 
     // ── Slug::from_stem ───────────────────────────────────────────────────────
@@ -745,11 +753,8 @@ mod tests {
     #[test]
     fn resolve_xss_in_display_text_is_escaped() {
         let known = slug_set(&["Target"]);
-        let result = resolve_wiki_links(
-            r#"[[Target|<script>alert(1)</script>]]"#,
-            &known,
-            "/notes/",
-        );
+        let result =
+            resolve_wiki_links(r#"[[Target|<script>alert(1)</script>]]"#, &known, "/notes/");
         assert!(!result.contains("<script>"), "raw <script> must not appear");
         assert!(result.contains("&lt;script&gt;"));
     }
@@ -776,10 +781,7 @@ mod tests {
 
     #[test]
     fn escape_html_encodes_all_special_chars() {
-        assert_eq!(
-            escape_html(r#"<>&"'"#),
-            "&lt;&gt;&amp;&quot;&#x27;"
-        );
+        assert_eq!(escape_html(r#"<>&"'"#), "&lt;&gt;&amp;&quot;&#x27;");
     }
 
     // ── split_on_secret_paragraphs ────────────────────────────────────────────
@@ -841,7 +843,10 @@ mod tests {
         // `#secrets` and `#secretive` must NOT be treated as the `#secret` tag.
         let parts = split_on_secret_paragraphs("these are #secrets and #secretive things");
         assert_eq!(parts.len(), 1);
-        assert!(!parts[0].1, "partial-word tags must not mark paragraph as secret");
+        assert!(
+            !parts[0].1,
+            "partial-word tags must not mark paragraph as secret"
+        );
     }
 
     #[test]
@@ -857,21 +862,30 @@ mod tests {
     #[test]
     fn render_markdown_escapes_raw_html_block() {
         let html = render_markdown("<script>alert(1)</script>\n");
-        assert!(!html.as_str().contains("<script>"), "raw <script> must not pass through");
+        assert!(
+            !html.as_str().contains("<script>"),
+            "raw <script> must not pass through"
+        );
         assert!(html.as_str().contains("&lt;script&gt;"));
     }
 
     #[test]
     fn render_markdown_escapes_inline_html() {
         let html = render_markdown("Hello <b>world</b> text");
-        assert!(!html.as_str().contains("<b>"), "inline HTML must not pass through");
+        assert!(
+            !html.as_str().contains("<b>"),
+            "inline HTML must not pass through"
+        );
         assert!(html.as_str().contains("&lt;b&gt;"));
     }
 
     #[test]
     fn render_markdown_escapes_script_injection_via_inline_html() {
         let html = render_markdown("Click <img src=x onerror=alert(1)>");
-        assert!(!html.as_str().contains("<img"), "raw <img> must not pass through");
+        assert!(
+            !html.as_str().contains("<img"),
+            "raw <img> must not pass through"
+        );
         assert!(html.as_str().contains("&lt;img"));
     }
 
@@ -891,7 +905,10 @@ mod tests {
         let s = html.as_str();
         assert!(has_secrets);
         // Secret text must not appear in the player HTML at all.
-        assert!(!s.contains("hidden content"), "secret text must not be sent to browser");
+        assert!(
+            !s.contains("hidden content"),
+            "secret text must not be sent to browser"
+        );
         // Placeholder is present instead.
         assert!(s.contains("notes-redacted"), "placeholder must be present");
         // Public content is still rendered.
@@ -903,8 +920,14 @@ mod tests {
         let text = "public content\n\nhidden #secret\n";
         let (html, _) = render_note_body_redacted(text);
         let s = html.as_str();
-        assert!(s.contains("public content"), "public paragraphs must be present");
-        assert!(!s.contains("hidden"), "secret paragraph text must be absent");
+        assert!(
+            s.contains("public content"),
+            "public paragraphs must be present"
+        );
+        assert!(
+            !s.contains("hidden"),
+            "secret paragraph text must be absent"
+        );
     }
 
     #[test]
@@ -918,14 +941,16 @@ mod tests {
         let text = "**bold secret** #secret\n";
         let html = render_note_body_revealed(text);
         // GM view: secret text is rendered (no redaction).
-        assert!(html.as_str().contains("bold secret"), "GM view must include secret text");
+        assert!(
+            html.as_str().contains("bold secret"),
+            "GM view must include secret text"
+        );
     }
 
     // ── NotesStore::scan ──────────────────────────────────────────────────────
 
     fn fixture_store() -> NotesStore {
-        NotesStore::scan(Path::new("fixtures/vault"))
-            .expect("fixtures/vault should scan cleanly")
+        NotesStore::scan(Path::new("fixtures/vault")).expect("fixtures/vault should scan cleanly")
     }
 
     #[test]
@@ -938,7 +963,10 @@ mod tests {
     #[test]
     fn scan_untagged_note_excluded() {
         let store = fixture_store();
-        assert!(store.get("untagged").is_none(), "untagged note should be excluded");
+        assert!(
+            store.get("untagged").is_none(),
+            "untagged note should be excluded"
+        );
     }
 
     #[test]
@@ -946,7 +974,10 @@ mod tests {
         let store = fixture_store();
         let session = store.get("session-1").expect("session-1 should exist");
         assert!(
-            session.html.as_str().contains(r#"href="/notes/the-known-world""#),
+            session
+                .html
+                .as_str()
+                .contains(r#"href="/notes/the-known-world""#),
             "wiki-link should resolve; got: {}",
             session.html.as_str()
         );
@@ -967,7 +998,10 @@ mod tests {
     fn scan_inline_secret_paragraph_sets_has_secrets() {
         let store = fixture_store();
         let session = store.get("session-1").expect("session-1 should exist");
-        assert!(session.has_secrets, "session-1 has a #secret-tagged paragraph");
+        assert!(
+            session.has_secrets,
+            "session-1 has a #secret-tagged paragraph"
+        );
         // Player HTML shows the placeholder, not the secret content.
         assert!(
             session.html.as_str().contains("notes-redacted"),
@@ -1057,17 +1091,25 @@ mod tests {
     fn scan_notes_sorted_by_title() {
         let store = fixture_store();
 
-        let world_titles: Vec<&str> =
-            store.world_notes.iter().map(|n| n.title.as_str()).collect();
+        let world_titles: Vec<&str> = store.world_notes.iter().map(|n| n.title.as_str()).collect();
         let mut sorted = world_titles.clone();
         sorted.sort();
-        assert_eq!(world_titles, sorted, "world_notes should be sorted by title");
+        assert_eq!(
+            world_titles, sorted,
+            "world_notes should be sorted by title"
+        );
 
-        let session_titles: Vec<&str> =
-            store.session_notes.iter().map(|n| n.title.as_str()).collect();
+        let session_titles: Vec<&str> = store
+            .session_notes
+            .iter()
+            .map(|n| n.title.as_str())
+            .collect();
         let mut sorted = session_titles.clone();
         sorted.sort();
-        assert_eq!(session_titles, sorted, "session_notes should be sorted by title");
+        assert_eq!(
+            session_titles, sorted,
+            "session_notes should be sorted by title"
+        );
     }
 
     #[test]
@@ -1098,7 +1140,18 @@ mod tests {
         let breaker_detail_store: Arc<dyn BreakerDetailStore> = store.clone();
         let breaker_content = Arc::new(BreakerContent::new(store.as_ref()));
         let has_notes = notes_store.is_some();
-        let index = Index::new(Routes::default(), has_notes, false, false, false, false, &HashSet::new(), None, Arc::new([])).await.unwrap();
+        let entries = has_notes
+            .then_some(crate::index::OptionalEntry::Notes)
+            .into_iter();
+        let index = Index::new(
+            Routes::default(),
+            entries,
+            &HashSet::new(),
+            None,
+            Arc::new([]),
+        )
+        .await
+        .unwrap();
 
         ServerState {
             certificate: Arc::from("fake-cert"),
@@ -1137,7 +1190,10 @@ mod tests {
     async fn handler_notes_index_no_vault_returns_404() {
         let state = minimal_state(None).await;
         let app = notes_router(state);
-        let req = Request::builder().uri("/notes").body(Body::empty()).unwrap();
+        let req = Request::builder()
+            .uri("/notes")
+            .body(Body::empty())
+            .unwrap();
         let res = app.oneshot(req).await.unwrap();
         assert_eq!(res.status(), StatusCode::NOT_FOUND);
     }
@@ -1160,7 +1216,10 @@ mod tests {
         let state = minimal_state(store).await;
         let app = notes_router(state);
 
-        let req = Request::builder().uri("/notes").body(Body::empty()).unwrap();
+        let req = Request::builder()
+            .uri("/notes")
+            .body(Body::empty())
+            .unwrap();
         let res = app.oneshot(req).await.unwrap();
         assert_eq!(res.status(), StatusCode::OK);
 
@@ -1175,7 +1234,10 @@ mod tests {
         let state = minimal_state(store).await;
         let app = notes_router(state);
 
-        let req = Request::builder().uri("/notes").body(Body::empty()).unwrap();
+        let req = Request::builder()
+            .uri("/notes")
+            .body(Body::empty())
+            .unwrap();
         let res = app.oneshot(req).await.unwrap();
         let text = body_text(res).await;
 
@@ -1191,7 +1253,10 @@ mod tests {
         let state = minimal_state(store).await;
         let app = notes_router(state);
 
-        let req = Request::builder().uri("/notes").body(Body::empty()).unwrap();
+        let req = Request::builder()
+            .uri("/notes")
+            .body(Body::empty())
+            .unwrap();
         let res = app.oneshot(req).await.unwrap();
         let text = body_text(res).await;
 
@@ -1230,7 +1295,10 @@ mod tests {
         let text = body_text(res).await;
 
         // Secret text must not be sent to a non-GM browser at all.
-        assert!(!text.contains("Malachar"), "secret text must be absent from non-GM response");
+        assert!(
+            !text.contains("Malachar"),
+            "secret text must be absent from non-GM response"
+        );
         // The placeholder must be present instead.
         assert!(text.contains("notes-redacted"));
     }

@@ -20,10 +20,8 @@ use crate::{
     error::Error,
     index::NavLink,
     notes::{
-        RenderedHtml, Slug,
-        render_markdown, render_note_body_redacted, render_note_body_revealed,
-        resolve_wiki_links,
-        SECRET_PLACEHOLDER,
+        RenderedHtml, SECRET_PLACEHOLDER, Slug, render_markdown, render_note_body_redacted,
+        render_note_body_revealed, resolve_wiki_links,
     },
 };
 
@@ -226,7 +224,10 @@ impl RecipeStore {
                         has_secrets: r.has_secrets,
                     })
                     .collect();
-                CategoryGroup { name, recipes: entries }
+                CategoryGroup {
+                    name,
+                    recipes: entries,
+                }
             })
             .collect();
         groups.sort_by(|a, b| a.name.cmp(&b.name));
@@ -297,7 +298,10 @@ pub async fn recipes_detail_route(
 ) -> Result<Html<String>, Error> {
     let store: &Arc<RecipeStore> = state.recipes_store.as_ref().ok_or(Error::NotFound)?;
     let recipe = store.get(&slug).ok_or(Error::NotFound)?;
-    let is_gm = auth_user.as_ref().map(|u| u.role == Role::Gm).unwrap_or(false);
+    let is_gm = auth_user
+        .as_ref()
+        .map(|u| u.role == Role::Gm)
+        .unwrap_or(false);
     let content = if is_gm {
         recipe.html_gm.as_str().to_owned()
     } else {
@@ -349,11 +353,11 @@ mod tests {
     fn recipe_store_excludes_non_recipe_notes() {
         let store = RecipeStore::scan(&fixture_vault()).expect("scan should succeed");
         // Notes tagged world/session (not recipe) should not appear as recipes
-        let has_world_note = store
-            .by_slug
-            .values()
-            .any(|r| r.title == "The Known World");
-        assert!(!has_world_note, "world-tagged notes must not appear in recipe store");
+        let has_world_note = store.by_slug.values().any(|r| r.title == "The Known World");
+        assert!(
+            !has_world_note,
+            "world-tagged notes must not appear in recipe store"
+        );
     }
 
     #[test]
@@ -393,7 +397,10 @@ mod tests {
     fn recipe_store_groups_by_category() {
         let store = RecipeStore::scan(&fixture_vault()).expect("scan should succeed");
         let dessert_group = store.groups.iter().find(|g| g.name == "dessert");
-        assert!(dessert_group.is_some(), "dessert category group should exist");
+        assert!(
+            dessert_group.is_some(),
+            "dessert category group should exist"
+        );
         let group = dessert_group.unwrap();
         assert!(
             group.recipes.iter().any(|r| r.title == "Chocolate Cake"),
@@ -407,7 +414,10 @@ mod tests {
         let names: Vec<&str> = store.groups.iter().map(|g| g.name.as_str()).collect();
         let mut sorted = names.clone();
         sorted.sort();
-        assert_eq!(names, sorted, "category groups should be sorted alphabetically");
+        assert_eq!(
+            names, sorted,
+            "category groups should be sorted alphabetically"
+        );
     }
 
     // ── parse_recipe_frontmatter ──────────────────────────────────────────────
@@ -492,7 +502,10 @@ mod tests {
             .await
             .unwrap();
         let html = String::from_utf8(body.to_vec()).unwrap();
-        assert!(html.contains("dessert"), "response should include category name");
+        assert!(
+            html.contains("dessert"),
+            "response should include category name"
+        );
     }
 
     #[tokio::test]

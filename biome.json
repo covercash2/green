@@ -15,6 +15,7 @@
         "noUnusedFunctionParameters": "error"
       },
       "style": {
+        "noNonNullAssertion": "error",
         "useConst": "error",
         "useTemplate": "error"
       }
