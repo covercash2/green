@@ -37,10 +37,10 @@ const SUPPRESSED_FIELDS = new Set(['message', 'summary']);
  * context (e.g. `err=`, `topic=`) is always visible.
  */
 export function extractMessage(fields: Record<string, unknown>): string {
-    const primary = (typeof fields['message'] === 'string' && fields['message'])
-        ? fields['message']
-        : (typeof fields['summary'] === 'string' && fields['summary'])
-            ? fields['summary']
+    const primary = (typeof fields.message === 'string' && fields.message)
+        ? fields.message
+        : (typeof fields.summary === 'string' && fields.summary)
+            ? fields.summary
             : '';
 
     const extra = Object.entries(fields)
@@ -82,7 +82,7 @@ export function isNearBottom(el: Scrollable): boolean {
 if (typeof document !== 'undefined') {
     const feed = document.getElementById('log-feed') as HTMLElement | null;
     const autoscrollCheckbox = document.getElementById('logs-autoscroll') as HTMLInputElement | null;
-    const streamUrl = feed?.dataset['stream'];
+    const streamUrl = feed?.dataset.stream;
 
     if (feed && streamUrl) {
         const isAppLog = streamUrl.includes('/app/');

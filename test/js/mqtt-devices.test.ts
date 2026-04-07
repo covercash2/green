@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { fetchDeviceMessages, sendCommand, handleDeviceRowClick, PanelController } from '../../src/js/mqtt-devices.ts';
+import { fetchDeviceMessages, sendCommand, handleDeviceRowClick, type PanelController } from '../../src/js/mqtt-devices.ts';
 
 // Helpers
 function ok(text: string) {

@@ -3,7 +3,12 @@ use std::{collections::HashSet, sync::Arc};
 use askama::Template;
 use axum::{extract::State, response::Html};
 
-use crate::{Routes, ServerState, auth::{AuthUserInfo, MaybeAuthUser}, error::Error, services::{PeerServiceGroup, ServiceStatus}};
+use crate::{
+    Routes, ServerState,
+    auth::{AuthUserInfo, MaybeAuthUser},
+    error::Error,
+    services::{PeerServiceGroup, ServiceStatus},
+};
 
 /// A navigation link shown in the site-wide nav bar.
 #[derive(Debug, Clone)]
@@ -14,12 +19,21 @@ pub struct NavLink {
     pub is_gm: bool,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, bon::Builder)]
+#[builder(on(String, into), start_fn = href)]
 pub struct IndexEntry {
-    pub name: String,
+    #[builder(start_fn)]
     pub href: String,
+    pub name: Option<String>,
     pub description: String,
     pub icon_url: Option<String>,
+}
+
+impl IndexEntry {
+    /// Display name: explicit `name` if set, otherwise the `href` as-is.
+    pub fn display_name(&self) -> &str {
+        self.name.as_deref().unwrap_or(&self.href)
+    }
 }
 
 #[derive(Debug, Clone, Template)]
@@ -37,39 +51,74 @@ pub struct Index {
     pub nav_links: Arc<[NavLink]>,
 }
 
-impl Index {
-    #[allow(clippy::too_many_arguments)]
-    pub async fn new(routes: Routes, has_notes: bool, has_recipes: bool, has_mqtt: bool, has_mqtt_devices: bool, has_logs: bool, service_urls: &HashSet<String>, logo_url: Option<String>, nav_links: Arc<[NavLink]>) -> Result<Self, Error> {
-        let static_entries = [
-            IndexEntry { name: "breaker box".into(), href: "/breaker".into(), description: "Electrical circuit layout".into(), icon_url: None },
-            IndexEntry { name: "qr code".into(), href: "/qr".into(), description: "Generate a QR code".into(), icon_url: None },
-            IndexEntry { name: "tailscale".into(), href: "/tailscale".into(), description: "Tailscale peer list".into(), icon_url: None },
-        ];
+/// Optional index entries that are only shown when the corresponding feature
+/// is configured. Pass any subset to [`Index::new`].
+#[derive(Debug)]
+pub enum OptionalEntry {
+    Notes,
+    Recipes,
+    Mqtt,
+    MqttDevices,
+    Logs,
+}
 
-        let notes_entry = has_notes.then_some(IndexEntry { name: "notes".into(), href: "/notes".into(), description: "D&D campaign notes".into(), icon_url: None });
-        let recipes_entry = has_recipes.then_some(IndexEntry { name: "recipes".into(), href: "/recipes".into(), description: "Recipe collection".into(), icon_url: None });
-        let mqtt_entry = has_mqtt.then_some(IndexEntry { name: "mqtt".into(), href: "/mqtt".into(), description: "Live MQTT message feed".into(), icon_url: None });
-        let mqtt_devices_entry = has_mqtt_devices.then_some(IndexEntry { name: "mqtt devices".into(), href: "/mqtt/devices".into(), description: "MQTT device inventory".into(), icon_url: None });
-        let logs_entry = has_logs.then_some(IndexEntry { name: "logs".into(), href: "/logs/app".into(), description: "Dev server log viewer".into(), icon_url: None });
+impl From<OptionalEntry> for IndexEntry {
+    fn from(e: OptionalEntry) -> Self {
+        match e {
+            OptionalEntry::Notes => IndexEntry::href("/notes")
+                .description("D&D campaign notes")
+                .build(),
+            OptionalEntry::Recipes => IndexEntry::href("/recipes")
+                .description("Recipe collection")
+                .build(),
+            OptionalEntry::Mqtt => IndexEntry::href("/mqtt")
+                .description("Live MQTT message feed")
+                .build(),
+            OptionalEntry::MqttDevices => IndexEntry::href("/mqtt/devices")
+                .description("MQTT device inventory")
+                .build(),
+            OptionalEntry::Logs => IndexEntry::href("/logs/app")
+                .description("Dev server log viewer")
+                .build(),
+        }
+    }
+}
+
+impl Index {
+    pub async fn new(
+        routes: Routes,
+        optional_entries: impl IntoIterator<Item = impl Into<IndexEntry>>,
+        service_urls: &HashSet<String>,
+        logo_url: Option<String>,
+        nav_links: Arc<[NavLink]>,
+    ) -> Result<Self, Error> {
+        let static_entries = [
+            IndexEntry::href("/breaker")
+                .description("Electrical circuit layout")
+                .build(),
+            IndexEntry::href("/qr")
+                .description("Generate a QR code")
+                .build(),
+            IndexEntry::href("/tailscale")
+                .description("Tailscale peer list")
+                .build(),
+        ];
 
         let mut routes: Vec<IndexEntry> = routes
             .into_iter()
             .filter(|(_, info)| !service_urls.contains(&format!("https://{}", info.url)))
-            .map(|(name, info)| IndexEntry {
-                name,
-                href: format!("https://{}", info.url),
-                description: info.description,
-                icon_url: info.icon_url,
+            .map(|(name, info)| {
+                IndexEntry::href(format!("https://{}", info.url))
+                    .name(name)
+                    .description(info.description)
+                    .maybe_icon_url(info.icon_url)
+                    .build()
             })
             .chain(static_entries)
-            .chain(notes_entry)
-            .chain(recipes_entry)
-            .chain(mqtt_entry)
-            .chain(mqtt_devices_entry)
-            .chain(logs_entry)
+            .chain(optional_entries.into_iter().map(Into::into))
             .collect();
 
-        routes.sort_by(|a, b| a.name.cmp(&b.name));
+        routes.sort_by(|a, b| a.display_name().cmp(b.display_name()));
 
         Ok(Index {
             routes,
@@ -107,12 +156,13 @@ pub async fn index(
     // the sum of all peers.
     // See: https://docs.rs/futures/latest/futures/future/fn.join_all.html
     let peer_groups = if auth_user.as_ref().map(|u| u.is_gm()).unwrap_or(false) {
-        let peers_with_keys: Vec<_> = state.peers.iter()
-            .filter(|p| p.api_key.is_some())
-            .collect();
+        let peers_with_keys: Vec<_> = state.peers.iter().filter(|p| p.api_key.is_some()).collect();
         futures::future::join_all(
-            peers_with_keys.iter().map(|p| crate::services::fetch_peer_services(p, &state.http_client))
-        ).await
+            peers_with_keys
+                .iter()
+                .map(|p| crate::services::fetch_peer_services(p, &state.http_client)),
+        )
+        .await
     } else {
         Vec::new()
     };
@@ -131,104 +181,136 @@ mod tests {
     use super::*;
     use crate::route::Routes;
 
+    async fn make_index(entries: impl IntoIterator<Item = OptionalEntry>) -> Index {
+        Index::new(
+            Routes::default(),
+            entries,
+            &HashSet::new(),
+            None,
+            Arc::new([]),
+        )
+        .await
+        .unwrap()
+    }
+
     #[tokio::test]
     async fn index_without_notes_has_no_notes_entry() {
-        let index = Index::new(Routes::default(), false, false, false, false, false, &HashSet::new(), None, Arc::new([])).await.unwrap();
+        let index = make_index([]).await;
         assert!(
             !index.routes.iter().any(|r| r.href == "/notes"),
-            "notes entry should be absent when has_notes=false"
+            "notes entry should be absent when Notes not passed"
         );
     }
 
     #[tokio::test]
     async fn index_with_notes_has_notes_entry() {
-        let index = Index::new(Routes::default(), true, false, false, false, false, &HashSet::new(), None, Arc::new([])).await.unwrap();
+        let index = make_index([OptionalEntry::Notes]).await;
         assert!(
             index.routes.iter().any(|r| r.href == "/notes"),
-            "notes entry should be present when has_notes=true"
+            "notes entry should be present when Notes passed"
         );
     }
 
     #[tokio::test]
     async fn index_always_has_static_entries() {
-        let index = Index::new(Routes::default(), false, false, false, false, false, &HashSet::new(), None, Arc::new([])).await.unwrap();
+        let index = make_index([]).await;
         assert!(index.routes.iter().any(|r| r.href == "/breaker"));
         assert!(index.routes.iter().any(|r| r.href == "/qr"));
     }
 
     #[tokio::test]
     async fn index_entries_sorted_alphabetically() {
-        let index = Index::new(Routes::default(), true, false, false, false, false, &HashSet::new(), None, Arc::new([])).await.unwrap();
-        let names: Vec<&str> = index.routes.iter().map(|r| r.name.as_str()).collect();
+        let index = make_index([OptionalEntry::Notes]).await;
+        let names: Vec<&str> = index.routes.iter().map(|r| r.display_name()).collect();
         let mut sorted = names.clone();
         sorted.sort();
-        assert_eq!(names, sorted, "index entries should be in alphabetical order");
+        assert_eq!(
+            names, sorted,
+            "index entries should be in alphabetical order"
+        );
     }
 
     #[tokio::test]
     async fn index_without_recipes_has_no_recipes_entry() {
-        let index = Index::new(Routes::default(), false, false, false, false, false, &HashSet::new(), None, Arc::new([])).await.unwrap();
+        let index = make_index([]).await;
         assert!(
             !index.routes.iter().any(|r| r.href == "/recipes"),
-            "recipes entry should be absent when has_recipes=false"
+            "recipes entry should be absent when Recipes not passed"
         );
     }
 
     #[tokio::test]
     async fn index_with_recipes_has_recipes_entry() {
-        let index = Index::new(Routes::default(), false, true, false, false, false, &HashSet::new(), None, Arc::new([])).await.unwrap();
+        let index = make_index([OptionalEntry::Recipes]).await;
         assert!(
             index.routes.iter().any(|r| r.href == "/recipes"),
-            "recipes entry should be present when has_recipes=true"
+            "recipes entry should be present when Recipes passed"
         );
     }
 
     #[tokio::test]
     async fn index_without_mqtt_devices_has_no_devices_entry() {
-        let index = Index::new(Routes::default(), false, false, true, false, false, &HashSet::new(), None, Arc::new([])).await.unwrap();
+        let index = make_index([OptionalEntry::Mqtt]).await;
         assert!(
             !index.routes.iter().any(|r| r.href == "/mqtt/devices"),
-            "mqtt devices entry should be absent when has_mqtt_devices=false"
+            "mqtt devices entry should be absent when MqttDevices not passed"
         );
     }
 
     #[tokio::test]
     async fn index_with_mqtt_devices_has_devices_entry() {
-        let index = Index::new(Routes::default(), false, false, true, true, false, &HashSet::new(), None, Arc::new([])).await.unwrap();
+        let index = make_index([OptionalEntry::Mqtt, OptionalEntry::MqttDevices]).await;
         assert!(
             index.routes.iter().any(|r| r.href == "/mqtt/devices"),
-            "mqtt devices entry should be present when has_mqtt_devices=true"
+            "mqtt devices entry should be present when MqttDevices passed"
         );
     }
 
     #[tokio::test]
     async fn index_mqtt_devices_entry_has_expected_fields() {
-        let index = Index::new(Routes::default(), false, false, true, true, false, &HashSet::new(), None, Arc::new([])).await.unwrap();
-        let entry = index.routes.iter().find(|r| r.href == "/mqtt/devices").unwrap();
-        assert_eq!(entry.name, "mqtt devices");
+        let index = make_index([OptionalEntry::Mqtt, OptionalEntry::MqttDevices]).await;
+        let entry = index
+            .routes
+            .iter()
+            .find(|r| r.href == "/mqtt/devices")
+            .unwrap();
+        assert_eq!(entry.display_name(), "/mqtt/devices");
         assert!(!entry.description.is_empty());
     }
 
     #[tokio::test]
     async fn index_mqtt_devices_sorted_adjacent_to_mqtt() {
-        let index = Index::new(Routes::default(), false, false, true, true, false, &HashSet::new(), None, Arc::new([])).await.unwrap();
-        let names: Vec<&str> = index.routes.iter().map(|r| r.name.as_str()).collect();
-        let mqtt_pos = names.iter().position(|&n| n == "mqtt").unwrap();
-        let devices_pos = names.iter().position(|&n| n == "mqtt devices").unwrap();
-        assert_eq!(devices_pos, mqtt_pos + 1, "mqtt devices should immediately follow mqtt");
+        let index = make_index([OptionalEntry::Mqtt, OptionalEntry::MqttDevices]).await;
+        let names: Vec<&str> = index.routes.iter().map(|r| r.display_name()).collect();
+        let mqtt_pos = names.iter().position(|n| *n == "/mqtt").unwrap();
+        let devices_pos = names.iter().position(|n| *n == "/mqtt/devices").unwrap();
+        assert_eq!(
+            devices_pos,
+            mqtt_pos + 1,
+            "mqtt devices should immediately follow mqtt"
+        );
     }
 
     #[tokio::test]
     async fn index_deduplicates_routes_matching_service_urls() {
-        // Build a Routes with one entry via TOML deserialization.
-        let routes: Routes = toml::from_str(
-            "[grafana]\nurl = \"grafana.example.com\"\ndescription = \"Grafana\"\n",
-        )
-        .unwrap();
+        let routes: Routes =
+            toml::from_str("[grafana]\nurl = \"grafana.example.com\"\ndescription = \"Grafana\"\n")
+                .unwrap();
         let service_urls: HashSet<String> = ["https://grafana.example.com".to_string()].into();
-        let index = Index::new(routes, false, false, false, false, false, &service_urls, None, Arc::new([])).await.unwrap();
+        let index = Index::new(
+            routes,
+            std::iter::empty::<OptionalEntry>(),
+            &service_urls,
+            None,
+            Arc::new([]),
+        )
+        .await
+        .unwrap();
         assert!(
-            !index.routes.iter().any(|r| r.href == "https://grafana.example.com"),
+            !index
+                .routes
+                .iter()
+                .any(|r| r.href == "https://grafana.example.com"),
             "route matching a service url should be filtered out"
         );
     }

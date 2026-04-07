@@ -48,6 +48,7 @@ tracing-subscriber = { version = "0.3.19", features = [
   "serde_json",
   "env-filter",
 ] }
+bon = "3.9.1"
 
 [dev-dependencies]
 insta = "1.46.3"
