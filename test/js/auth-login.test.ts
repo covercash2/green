@@ -35,7 +35,7 @@ test('authenticateDiscoverable posts to discoverable endpoints', async () => {
 });
 
 test('authenticateDiscoverable does NOT pass useBrowserAutofill', async () => {
-    let capturedOpts;
+    let capturedOpts: unknown;
     await authenticateDiscoverable({
         startAuthentication: async (opts) => { capturedOpts = opts; return {}; },
         fetch: async (url) => {

@@ -6,7 +6,13 @@ use axum::{
 
 use std::sync::Arc;
 
-use crate::{auth::{AuthUserInfo, GmUser}, breaker_detail::{BreakerDetailStore, BreakerSlot}, error::Error, index::NavLink, ServerState};
+use crate::{
+    ServerState,
+    auth::{AuthUserInfo, GmUser},
+    breaker_detail::{BreakerDetailStore, BreakerSlot},
+    error::Error,
+    index::NavLink,
+};
 
 /// Pre-computed breaker panel HTML content (the circuit layout).
 /// Stored in ServerState and used to construct `BreakerPage` per request.
@@ -56,7 +62,10 @@ fn render_slot(
     let label = if let Some(pk) = primary_key {
         store.get(pk).and_then(|s| s.label.as_deref()).unwrap_or("")
     } else {
-        store.get(key).and_then(|s| s.label.as_deref()).unwrap_or("")
+        store
+            .get(key)
+            .and_then(|s| s.label.as_deref())
+            .unwrap_or("")
     };
 
     // Both coupled slots target the secondary's (lower) detail panel.
@@ -100,10 +109,13 @@ fn render_from_store(store: &dyn BreakerDetailStore) -> String {
         let right_key = format!("{row_num}-right");
 
         output.push_str(&render_slot(store, &left_key, row_num, "breaker-slot-left"));
-        output.push_str(&format!(
-            r#"<div class="breaker-row-num">{row_num}</div>"#
+        output.push_str(&format!(r#"<div class="breaker-row-num">{row_num}</div>"#));
+        output.push_str(&render_slot(
+            store,
+            &right_key,
+            row_num,
+            "breaker-slot-right",
         ));
-        output.push_str(&render_slot(store, &right_key, row_num, "breaker-slot-right"));
         output.push_str(&format!(
             r#"<div id="breaker-detail-{row_num}" class="breaker-row-detail"></div>"#
         ));
@@ -156,9 +168,10 @@ pub async fn breaker_detail_route(
         .coupled_primary_of(&key)
         .unwrap_or(&key)
         .to_owned();
-    let detail = state.breaker_detail_store.get(&lookup_key).filter(|s| {
-        s.amperage.is_some() || s.devices.is_some() || s.notes.is_some()
-    });
+    let detail = state
+        .breaker_detail_store
+        .get(&lookup_key)
+        .filter(|s| s.amperage.is_some() || s.devices.is_some() || s.notes.is_some());
     Ok(Html(BreakerDetailTemplate { detail }.render()?))
 }
 
@@ -243,7 +256,10 @@ mod tests {
 
     #[test]
     fn escape_all_specials() {
-        assert_eq!(html_escape(r#"<a href="x&y">"#), "&lt;a href=&quot;x&amp;y&quot;&gt;");
+        assert_eq!(
+            html_escape(r#"<a href="x&y">"#),
+            "&lt;a href=&quot;x&amp;y&quot;&gt;"
+        );
     }
 
     // ── render_from_store ──────────────────────────────────────────────────────

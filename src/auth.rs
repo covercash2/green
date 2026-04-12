@@ -413,7 +413,11 @@ pub struct StartRegRequest {
 // ─── Handlers ─────────────────────────────────────────────────────────────
 
 use askama::Template;
-use axum::{Form, Json, extract::{Query, State}, response::Html};
+use axum::{
+    Form, Json,
+    extract::{Query, State},
+    response::Html,
+};
 use serde_json::Value;
 
 #[derive(Debug, Deserialize, Default)]
@@ -799,7 +803,8 @@ pub async fn start_recovery(
     if user_exists {
         let code = generate_otc();
         auth.cleanup_otc_store().await;
-        let _ = auth.otc_store
+        let _ = auth
+            .otc_store
             .write()
             .await
             .insert(req.username.clone(), (code.clone(), Instant::now()));
@@ -818,7 +823,10 @@ pub async fn start_recovery(
         }
     }
 
-    let url = format!("/auth/recover?sent=true&username={}", percent_encode(&req.username));
+    let url = format!(
+        "/auth/recover?sent=true&username={}",
+        percent_encode(&req.username)
+    );
     Ok(Redirect::to(&url))
 }
 
@@ -908,13 +916,13 @@ impl AuthState {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ServerState;
     use axum::{
         body::Body,
         http::{Request, StatusCode},
         response::Html,
         routing::get,
     };
-    use crate::ServerState;
     use std::path::Path;
     use tower::ServiceExt;
 
@@ -943,7 +951,15 @@ mod tests {
         let store = Arc::new(BreakerStore::from_data(data).unwrap());
         let breaker_content = Arc::new(BreakerContent::new(store.as_ref()));
         let breaker_detail_store: Arc<dyn BreakerDetailStore> = store;
-        let index = Index::new(Routes::default(), false, false, false, false, &Default::default(), None, Arc::new([])).await.unwrap();
+        let index = Index::new(
+            Routes::default(),
+            std::iter::empty::<crate::index::OptionalEntry>(),
+            &Default::default(),
+            None,
+            Arc::new([]),
+        )
+        .await
+        .unwrap();
 
         ServerState {
             certificate: Arc::from("fake-cert"),
@@ -952,11 +968,15 @@ mod tests {
             index,
             tailscale_socket: Arc::from(Path::new("/tmp/fake.sock")),
             notes_store: None,
+            recipes_store: None,
             auth_state: Some(Arc::new(auth_state)),
             mqtt_state: None,
             log_config: None,
             systemd_config: None,
             nav_links: Arc::new([]),
+            peers: Arc::new([]),
+            http_client: reqwest::Client::new(),
+            peer_api_key: None,
         }
     }
 
@@ -998,7 +1018,10 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(res.status(), StatusCode::SEE_OTHER);
-        assert_eq!(res.headers().get("location").unwrap(), "/auth/login?next=%2Fgm-only");
+        assert_eq!(
+            res.headers().get("location").unwrap(),
+            "/auth/login?next=%2Fgm-only"
+        );
     }
 
     #[tokio::test]
@@ -1120,7 +1143,10 @@ mod tests {
             .unwrap();
         assert_eq!(res.status(), StatusCode::SEE_OTHER);
         let loc = res.headers().get("location").unwrap().to_str().unwrap();
-        assert!(loc.contains("error="), "expected error param in redirect: {loc}");
+        assert!(
+            loc.contains("error="),
+            "expected error param in redirect: {loc}"
+        );
     }
 
     #[tokio::test]
@@ -1133,7 +1159,10 @@ mod tests {
             .unwrap();
         assert_eq!(res.status(), StatusCode::SEE_OTHER);
         let loc = res.headers().get("location").unwrap().to_str().unwrap();
-        assert!(loc.contains("error="), "expected error param in redirect: {loc}");
+        assert!(
+            loc.contains("error="),
+            "expected error param in redirect: {loc}"
+        );
     }
 
     #[tokio::test]
@@ -1142,7 +1171,8 @@ mod tests {
         {
             let auth = state.auth_state.as_ref().unwrap();
             let old = Instant::now() - Duration::from_secs(601);
-            let _ = auth.otc_store
+            let _ = auth
+                .otc_store
                 .write()
                 .await
                 .insert("alice".to_string(), ("ABCDEF".to_string(), old));
@@ -1153,7 +1183,10 @@ mod tests {
             .unwrap();
         assert_eq!(res.status(), StatusCode::SEE_OTHER);
         let loc = res.headers().get("location").unwrap().to_str().unwrap();
-        assert!(loc.contains("error="), "expected error param in redirect: {loc}");
+        assert!(
+            loc.contains("error="),
+            "expected error param in redirect: {loc}"
+        );
     }
 
     #[tokio::test]
