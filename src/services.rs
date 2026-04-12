@@ -119,8 +119,6 @@ pub const PEER_AUTH_HEADER: &str = "X-Green-Api-Key";
 /// See: <https://docs.rs/tokio/latest/tokio/time/fn.timeout.html>
 const PEER_FETCH_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
 
-// ─── Config ───────────────────────────────────────────────────────────────────
-
 /// Per-unit configuration within [`SystemdConfig`].
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct UnitConfig {
@@ -143,8 +141,6 @@ pub struct UnitConfig {
 pub struct SystemdConfig {
     pub units: Vec<UnitConfig>,
 }
-
-// ─── Status types ────────────────────────────────────────────────────────────
 
 /// Derived health bucket — coarser than raw systemd states, used for CSS and
 /// the JSON API.
@@ -215,8 +211,6 @@ pub struct ServiceStatus {
     pub url: Option<String>,
 }
 
-// ─── Peer service group ───────────────────────────────────────────────────────
-
 /// Service statuses aggregated from one peer instance, shown as a labelled
 /// group below the local services on the home page (GM view only).
 ///
@@ -234,8 +228,6 @@ pub struct PeerServiceGroup {
     /// Services returned by the peer, or empty when `online` is false.
     pub services: Vec<ServiceStatus>,
 }
-
-// ─── Extractor: GmOrPeer ─────────────────────────────────────────────────────
 
 /// Axum extractor that permits access to `/api/services` via **either** of two
 /// authentication paths:
@@ -274,8 +266,6 @@ impl FromRequestParts<ServerState> for GmOrPeer {
             .map_err(IntoResponse::into_response)
     }
 }
-
-// ─── Peer fetch ───────────────────────────────────────────────────────────────
 
 /// Call a peer's `/api/services` endpoint and return a [`PeerServiceGroup`].
 ///
