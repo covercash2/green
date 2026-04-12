@@ -52,7 +52,6 @@ mod logs;
 mod mqtt;
 mod notes;
 mod qr;
-mod recipes;
 mod route;
 mod services;
 mod tailscale;
@@ -110,6 +109,11 @@ pub enum Route {
     #[serde(rename = "/notes")]
     #[strum(serialize = "/notes")]
     Notes,
+
+    /// Trigger a background rescan of the notes vault (GM only).
+    #[serde(rename = "/api/notes/refresh")]
+    #[strum(serialize = "/api/notes/refresh")]
+    NotesRefresh,
 
     /// Passkey login page.
     #[serde(rename = "/auth/login")]
@@ -202,10 +206,11 @@ pub struct ServerState {
     pub index: Index,
     /// Path to the Tailscale Unix socket.
     pub tailscale_socket: Arc<Path>,
-    /// Scanned notes vault, or `None` if `vault_path` is not configured.
-    pub notes_store: Option<Arc<notes::NotesStore>>,
+    /// Notes vault holder, or `None` if `vault_path` is not configured.
+    /// The inner store loads asynchronously; `None` indicates vault not yet ready.
+    pub notes_store: Option<notes::NoteVault>,
     /// Scanned recipe vault, or `None` if `recipe_vault_path` is not configured.
-    pub recipes_store: Option<Arc<recipes::RecipeStore>>,
+    pub recipes_store: Option<Arc<notes::recipes::RecipeStore>>,
     /// WebAuthn authentication state, or `None` if auth is not configured.
     pub auth_state: Option<Arc<auth::AuthState>>,
     /// MQTT broadcast state, or `None` if mqtt is not configured.
@@ -245,26 +250,18 @@ impl ServerState {
         let ca_content = read_file(&config.ca_path).await?;
         let breaker_data = BreakerData::load().await?;
 
-        let notes_store = if let Some(ref vp) = config.vault_path {
-            let vp = vp.clone();
-            let store = tokio::task::spawn_blocking(move || notes::NotesStore::scan(&vp))
-                .await
-                .expect("notes scan task panicked")?;
-            tracing::info!(
-                world = store.world_notes.len(),
-                session = store.session_notes.len(),
-                "notes vault loaded"
-            );
-            Some(Arc::new(store))
-        } else {
-            None
-        };
+        let notes_store = config.vault_path.as_ref().map(|vp| {
+            let vault = notes::NoteVault::new(vp.clone());
+            vault.spawn_scan();
+            vault
+        });
 
         let recipes_store = if let Some(ref rvp) = config.recipe_vault_path {
             let rvp = rvp.clone();
-            let store = tokio::task::spawn_blocking(move || recipes::RecipeStore::scan(&rvp))
-                .await
-                .expect("recipe scan task panicked")?;
+            let store =
+                tokio::task::spawn_blocking(move || notes::recipes::RecipeStore::scan(&rvp))
+                    .await
+                    .expect("recipe scan task panicked")?;
             Some(Arc::new(store))
         } else {
             None
@@ -460,10 +457,11 @@ fn build_router(state: ServerState) -> axum::Router {
         .route(Route::Qr.as_str(), axum::routing::post(qr::qr_route))
         .route(Route::QrPage.as_str(), get(qr::qr_page_route))
         .route(Route::Tailscale.as_str(), get(tailscale::tailscale_route))
-        .route(Route::Notes.as_str(), get(notes::notes_index_route))
-        .route("/notes/{slug}", get(notes::notes_detail_route))
-        .route("/recipes", get(recipes::recipes_index_route))
-        .route("/recipes/{slug}", get(recipes::recipes_detail_route))
+        .route(Route::Notes.as_str(), get(notes::dnd::notes_index_route))
+        .route("/notes/{slug}", get(notes::dnd::notes_detail_route))
+        .route(Route::NotesRefresh.as_str(), axum::routing::post(notes::dnd::notes_refresh_route))
+        .route("/recipes", get(notes::recipes::recipes_index_route))
+        .route("/recipes/{slug}", get(notes::recipes::recipes_detail_route))
         .route(Route::AuthLogin.as_str(), get(auth::login_page))
         .route(Route::AuthRegister.as_str(), get(auth::register_page))
         .route("/auth/register/challenge", axum::routing::post(auth::start_registration))
