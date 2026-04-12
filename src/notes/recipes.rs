@@ -12,55 +12,17 @@ use axum::{
     extract::{Path as AxumPath, State},
     response::Html,
 };
-use serde::Deserialize;
-
 use crate::{
     ServerState, VERSION,
     auth::{AuthUserInfo, MaybeAuthUser, Role},
     error::Error,
     index::NavLink,
-    notes::{
-        RenderedHtml, SECRET_PLACEHOLDER, Slug, render_markdown, render_note_body_redacted,
-        render_note_body_revealed, resolve_wiki_links,
-    },
 };
-
-// ─── Frontmatter ──────────────────────────────────────────────────────────────
-
-#[derive(Debug, Default, Deserialize)]
-struct RecipeFrontMatter {
-    pub title: Option<String>,
-    #[serde(default)]
-    pub tags: Vec<String>,
-    #[serde(default)]
-    pub category: Option<String>,
-    #[serde(default)]
-    pub servings: Option<String>,
-    #[serde(default)]
-    pub prep_time: Option<String>,
-    #[serde(default)]
-    pub cook_time: Option<String>,
-}
-
-fn parse_recipe_frontmatter(content: &str) -> (RecipeFrontMatter, &str) {
-    let content = content.trim_start();
-    if !content.starts_with("---") {
-        return (RecipeFrontMatter::default(), content);
-    }
-    let after_open = &content[3..];
-    if let Some(close_pos) = after_open.find("\n---") {
-        let yaml = &after_open[..close_pos];
-        let rest = &after_open[close_pos + 4..]; // skip "\n---"
-        let rest = rest.strip_prefix('\n').unwrap_or(rest);
-        let fm = serde_yml::from_str(yaml).unwrap_or_else(|e| {
-            tracing::warn!(error = %e, "malformed recipe frontmatter, using defaults");
-            RecipeFrontMatter::default()
-        });
-        (fm, rest)
-    } else {
-        (RecipeFrontMatter::default(), content)
-    }
-}
+use super::{
+    RenderedHtml, SECRET_PLACEHOLDER, Slug, render_markdown, render_note_body_redacted,
+    render_note_body_revealed,
+};
+use super::obsidian;
 
 // ─── Public types ─────────────────────────────────────────────────────────────
 
@@ -125,52 +87,37 @@ impl RecipeStore {
     ///    secret-block processing, group by category.
     pub fn scan(vault: &Path) -> Result<Self, RecipeStoreError> {
         use std::collections::HashSet;
-        use walkdir::WalkDir;
 
-        if !vault.is_dir() {
-            return Err(RecipeStoreError::VaultNotDirectory(vault.to_path_buf()));
-        }
-
-        // Pass 1: build slug set for wiki-link resolution
-        let mut md_paths: Vec<PathBuf> = Vec::new();
-        let mut slug_set: HashSet<Slug> = HashSet::new();
-
-        for entry in WalkDir::new(vault)
-            .into_iter()
-            .filter_map(|e| e.ok())
-            .filter(|e| e.file_type().is_file())
-        {
-            let path = entry.into_path();
-            if path.extension().and_then(|e| e.to_str()) == Some("md") {
-                if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
-                    let _ = slug_set.insert(Slug::from_stem(stem));
+        // Pass 1: build vault index for wiki-link resolution
+        let (vault_index, md_paths) =
+            obsidian::build_vault_index(vault, &HashMap::new()).map_err(|e| match e {
+                obsidian::VaultError::NotDirectory(p) => RecipeStoreError::VaultNotDirectory(p),
+                obsidian::VaultError::ReadError { path, source } => {
+                    RecipeStoreError::RecipeRead { path, source }
                 }
-                md_paths.push(path);
-            }
-        }
+            })?;
+        let live_slugs: HashSet<Slug> = vault_index.all_slugs().into_iter().cloned().collect();
 
         // Pass 2: parse, filter by recipe tag, render
         let mut by_category: HashMap<String, Vec<Recipe>> = HashMap::new();
         let mut by_slug: HashMap<Slug, Recipe> = HashMap::new();
 
         for path in &md_paths {
-            let raw =
-                std::fs::read_to_string(path).map_err(|source| RecipeStoreError::RecipeRead {
-                    path: path.clone(),
-                    source,
-                })?;
+            let note: obsidian::ParsedNote = obsidian::parse_note(path).map_err(|e| match e {
+                obsidian::VaultError::ReadError { path, source } => {
+                    RecipeStoreError::RecipeRead { path, source }
+                }
+                obsidian::VaultError::NotDirectory(p) => RecipeStoreError::VaultNotDirectory(p),
+            })?;
 
-            let (fm, body) = parse_recipe_frontmatter(&raw);
-
-            if !fm.tags.iter().any(|t| t == "recipe") {
+            if !note.frontmatter.tags.iter().any(|t| t == "recipe") {
                 continue;
             }
 
-            let stem = path
-                .file_stem()
-                .and_then(|s| s.to_str())
-                .unwrap_or_default();
-            let slug = Slug::from_stem(stem);
+            let fm = note.frontmatter;
+            let body = &note.body;
+            let slug = note.slug;
+            let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or_default();
             let title = fm.title.unwrap_or_else(|| {
                 stem.chars()
                     .map(|c| if c == '-' || c == '_' { ' ' } else { c })
@@ -185,13 +132,19 @@ impl RecipeStore {
             let (html, html_gm, has_secrets) = if is_whole_secret {
                 let player = RenderedHtml::from_placeholder(SECRET_PLACEHOLDER);
                 let gm_rendered = render_markdown(body);
-                let gm = RenderedHtml::from_html(resolve_wiki_links(gm_rendered.as_str(), &slug_set, "/recipes/"));
+                let gm = RenderedHtml::from_html(obsidian::resolve_wiki_links(
+                    gm_rendered.as_str(), &vault_index, &live_slugs, "/recipes/",
+                ));
                 (player, gm, true)
             } else {
                 let (player_rendered, has_secrets) = render_note_body_redacted(body);
                 let gm_rendered = render_note_body_revealed(body);
-                let player_html = RenderedHtml::from_html(resolve_wiki_links(player_rendered.as_str(), &slug_set, "/recipes/"));
-                let gm_html = RenderedHtml::from_html(resolve_wiki_links(gm_rendered.as_str(), &slug_set, "/recipes/"));
+                let player_html = RenderedHtml::from_html(obsidian::resolve_wiki_links(
+                    player_rendered.as_str(), &vault_index, &live_slugs, "/recipes/",
+                ));
+                let gm_html = RenderedHtml::from_html(obsidian::resolve_wiki_links(
+                    gm_rendered.as_str(), &vault_index, &live_slugs, "/recipes/",
+                ));
                 (player_html, gm_html, has_secrets)
             };
 
@@ -329,6 +282,7 @@ pub async fn recipes_detail_route(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{ServerState, notes::obsidian};
     use axum::{
         body::Body,
         http::{Request, StatusCode},
@@ -391,7 +345,7 @@ mod tests {
     fn recipe_entry_defaults_category_to_uncategorized() {
         // Parse a note without a category field
         let raw = "---\ntitle: Bare Recipe\ntags: [recipe]\n---\nSome text.\n";
-        let (fm, _body) = parse_recipe_frontmatter(raw);
+        let (fm, _body) = obsidian::parse_frontmatter::<obsidian::Frontmatter>(raw);
         let category = fm.category.unwrap_or_else(|| "uncategorized".to_string());
         assert_eq!(category, "uncategorized");
     }
@@ -423,12 +377,12 @@ mod tests {
         );
     }
 
-    // ── parse_recipe_frontmatter ──────────────────────────────────────────────
+    // ── obsidian::parse_frontmatter (recipe fields) ───────────────────────────
 
     #[test]
     fn parse_recipe_fm_all_fields() {
         let raw = "---\ntitle: Test Recipe\ntags: [recipe]\ncategory: breakfast\nservings: \"2\"\nprep_time: \"5 min\"\ncook_time: \"10 min\"\n---\nBody.\n";
-        let (fm, rest) = parse_recipe_frontmatter(raw);
+        let (fm, rest) = obsidian::parse_frontmatter::<obsidian::Frontmatter>(raw);
         assert_eq!(fm.title.as_deref(), Some("Test Recipe"));
         assert!(fm.tags.contains(&"recipe".to_string()));
         assert_eq!(fm.category.as_deref(), Some("breakfast"));
@@ -441,7 +395,7 @@ mod tests {
     #[test]
     fn parse_recipe_fm_missing_optional_fields() {
         let raw = "---\ntags: [recipe]\n---\nBody.\n";
-        let (fm, _rest) = parse_recipe_frontmatter(raw);
+        let (fm, _rest) = obsidian::parse_frontmatter::<obsidian::Frontmatter>(raw);
         assert!(fm.title.is_none());
         assert!(fm.category.is_none());
         assert!(fm.servings.is_none());

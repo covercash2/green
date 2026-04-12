@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use axum::{http::StatusCode, response::IntoResponse};
 use tracing_subscriber::filter::ParseError;
 
-use crate::{breaker_detail, notes, recipes};
+use crate::{breaker_detail, notes};
 
 #[derive(Debug, thiserror::Error)]
 #[error("error running green")]
@@ -14,12 +14,12 @@ pub enum Error {
     #[error("invalid notes vault: {source}")]
     NotesStore {
         #[from]
-        source: notes::NotesStoreError,
+        source: notes::dnd::NotesStoreError,
     },
     #[error("invalid recipe vault: {source}")]
     RecipeStore {
         #[from]
-        source: recipes::RecipeStoreError,
+        source: notes::recipes::RecipeStoreError,
     },
     #[error("unable to deserialize TOML file `{path}`: {source}")]
     DeserializeTomlFile {
