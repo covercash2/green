@@ -61,10 +61,15 @@
 //!
 //! ### Security considerations
 //!
-//! - The `api_key` / `peer_api_key` values are pre-shared secrets.  They must
-//!   be stored encrypted (e.g. via sops-nix) and injected via the
-//!   `GREEN_PEER_API_KEY` environment variable.  They must **not** appear in
-//!   config.toml in the Nix store.
+//! - `peer_api_key` is the inbound pre-shared secret used to validate
+//!   `X-Green-Api-Key` on `/api/services`. It should be stored encrypted
+//!   (e.g. via sops-nix) and injected via the `GREEN_PEER_API_KEY`
+//!   environment variable so it does not appear in `config.toml` in the Nix
+//!   store.
+//! - Outbound peer credentials are currently read from `[[peers]] api_key`
+//!   in config and sent as `X-Green-Api-Key` when calling a peer's
+//!   `/api/services` endpoint. They are not currently overridden by
+//!   `GREEN_PEER_API_KEY`.
 //! - All communication is over HTTPS (enforced by Caddy + mkcert/Tailscale TLS).
 //! - The comparison is a plain `==` on `&str`.  For this internal threat model
 //!   (LAN-only, already behind TLS) timing-safe comparison is not required, but
@@ -297,16 +302,20 @@ pub async fn fetch_peer_services(peer: &PeerInfo, client: &reqwest::Client) -> P
 
     let endpoint = format!("{}/api/services", peer.url.trim_end_matches('/'));
 
-    // Wrap the entire request+parse chain in a timeout so a slow or hung peer
-    // does not block the home page indefinitely.
+    // Wrap the entire request+body-read+JSON-parse chain in a timeout so a
+    // slow or hung peer does not block the home page indefinitely.  Using an
+    // async block ensures the timeout covers all three steps, not just `.send()`.
     // See: https://docs.rs/tokio/latest/tokio/time/fn.timeout.html
-    let result = tokio::time::timeout(
-        PEER_FETCH_TIMEOUT,
+    let result = tokio::time::timeout(PEER_FETCH_TIMEOUT, async {
         client
             .get(&endpoint)
             .header(PEER_AUTH_HEADER, api_key.as_str())
-            .send(),
-    )
+            .send()
+            .await?
+            .error_for_status()?
+            .json::<Vec<ServiceStatus>>()
+            .await
+    })
     .await;
 
     let offline = |reason: &str| {
@@ -322,7 +331,7 @@ pub async fn fetch_peer_services(peer: &PeerInfo, client: &reqwest::Client) -> P
     match result {
         Err(_timeout) => offline("timeout"),
         Ok(Err(e)) => {
-            tracing::warn!(peer = %peer.name, error = %e, "peer service request error");
+            tracing::warn!(peer = %peer.name, error = %e, "peer service fetch failed");
             PeerServiceGroup {
                 name: peer.name.clone(),
                 url: peer.url.clone(),
@@ -330,31 +339,11 @@ pub async fn fetch_peer_services(peer: &PeerInfo, client: &reqwest::Client) -> P
                 services: Vec::new(),
             }
         }
-        Ok(Ok(response)) if !response.status().is_success() => {
-            tracing::warn!(peer = %peer.name, status = %response.status(), "peer service non-2xx response");
-            PeerServiceGroup {
-                name: peer.name.clone(),
-                url: peer.url.clone(),
-                online: false,
-                services: Vec::new(),
-            }
-        }
-        Ok(Ok(response)) => match response.json::<Vec<ServiceStatus>>().await {
-            Ok(services) => PeerServiceGroup {
-                name: peer.name.clone(),
-                url: peer.url.clone(),
-                online: true,
-                services,
-            },
-            Err(e) => {
-                tracing::warn!(peer = %peer.name, error = %e, "peer service JSON parse error");
-                PeerServiceGroup {
-                    name: peer.name.clone(),
-                    url: peer.url.clone(),
-                    online: false,
-                    services: Vec::new(),
-                }
-            }
+        Ok(Ok(services)) => PeerServiceGroup {
+            name: peer.name.clone(),
+            url: peer.url.clone(),
+            online: true,
+            services,
         },
     }
 }
@@ -631,5 +620,176 @@ ExecMainStartTimestamp=\n";
         let s = parse("test", out);
         assert_eq!(s.health, Health::Healthy);
         assert_eq!(s.pid, Some(42));
+    }
+
+    // ── GmOrPeer extractor ───────────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn gm_or_peer_accepts_valid_api_key() {
+        use axum::{Router, body::Body, http::Request, routing::get};
+        use tower::ServiceExt;
+
+        let mut state = crate::tests::minimal_server_state().await;
+        state.peer_api_key = Some(Arc::from("secret"));
+
+        let app = Router::new()
+            .route("/api/services", get(services_api_route))
+            .with_state(state);
+
+        let req = Request::builder()
+            .uri("/api/services")
+            .header(PEER_AUTH_HEADER, "secret")
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        // Valid key passes GmOrPeer; systemd_config is None → 404, not 403.
+        assert_ne!(resp.status(), StatusCode::FORBIDDEN);
+        assert_ne!(resp.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn gm_or_peer_rejects_wrong_api_key() {
+        use axum::{Router, body::Body, http::Request, routing::get};
+        use tower::ServiceExt;
+
+        let mut state = crate::tests::minimal_server_state().await;
+        state.peer_api_key = Some(Arc::from("secret"));
+
+        let app = Router::new()
+            .route("/api/services", get(services_api_route))
+            .with_state(state);
+
+        let req = Request::builder()
+            .uri("/api/services")
+            .header(PEER_AUTH_HEADER, "wrong")
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+    }
+
+    #[tokio::test]
+    async fn gm_or_peer_requires_session_when_no_header() {
+        use axum::{Router, body::Body, http::Request, routing::get};
+        use tower::ServiceExt;
+
+        let mut state = crate::tests::minimal_server_state().await;
+        state.peer_api_key = Some(Arc::from("secret"));
+
+        let app = Router::new()
+            .route("/api/services", get(services_api_route))
+            .with_state(state);
+
+        // No X-Green-Api-Key header and no GM session cookie.
+        let req = Request::builder()
+            .uri("/api/services")
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        // Without a header the extractor falls through to GmUser which
+        // rejects unauthenticated requests (redirect to login or 4xx).
+        let status = resp.status().as_u16();
+        assert!(
+            status == 401 || status == 403 || (300..400).contains(&status),
+            "expected auth rejection (4xx or redirect), got {status}"
+        );
+        // Must NOT succeed.
+        assert_ne!(resp.status(), StatusCode::OK);
+    }
+
+    // ── fetch_peer_services ──────────────────────────────────────────────────
+
+    /// Spawn a one-shot local HTTP server; return its base URL and a handle.
+    async fn local_server(
+        router: axum::Router,
+    ) -> (String, tokio::task::JoinHandle<Result<(), std::io::Error>>) {
+        use std::future::IntoFuture;
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .unwrap();
+        let addr = listener.local_addr().unwrap();
+        let handle = tokio::spawn(axum::serve(listener, router).into_future());
+        (format!("http://{addr}"), handle)
+    }
+
+    #[tokio::test]
+    async fn fetch_peer_services_success() {
+        use axum::{Json, Router, routing::get};
+
+        let services = vec![ServiceStatus {
+            name: "test".to_string(),
+            description: "Test svc".to_string(),
+            load_state: "loaded".to_string(),
+            active_state: "active".to_string(),
+            sub_state: "running".to_string(),
+            pid: Some(1),
+            since: None,
+            health: Health::Healthy,
+            icon_url: None,
+            url: None,
+        }];
+        let services_clone = services.clone();
+        let app = Router::new().route(
+            "/api/services",
+            get(move || {
+                let s = services_clone.clone();
+                async move { Json(s) }
+            }),
+        );
+        let (base, _handle) = local_server(app).await;
+
+        let peer = PeerInfo {
+            name: "test-peer".to_string(),
+            url: base,
+            api_key: Some("any".to_string()),
+        };
+        let client = reqwest::Client::new();
+        let result = fetch_peer_services(&peer, &client).await;
+
+        assert!(result.online);
+        assert_eq!(result.services.len(), 1);
+        assert_eq!(result.services[0].name, "test");
+    }
+
+    #[tokio::test]
+    async fn fetch_peer_services_non_2xx_returns_offline() {
+        use axum::{Router, routing::get};
+
+        let app = Router::new()
+            .route("/api/services", get(|| async { StatusCode::FORBIDDEN }));
+        let (base, _handle) = local_server(app).await;
+
+        let peer = PeerInfo {
+            name: "bad-peer".to_string(),
+            url: base,
+            api_key: Some("key".to_string()),
+        };
+        let client = reqwest::Client::new();
+        let result = fetch_peer_services(&peer, &client).await;
+
+        assert!(!result.online);
+        assert!(result.services.is_empty());
+    }
+
+    #[tokio::test]
+    async fn fetch_peer_services_invalid_json_returns_offline() {
+        use axum::{Router, routing::get};
+
+        let app = Router::new().route(
+            "/api/services",
+            get(|| async { (StatusCode::OK, "not-json-at-all") }),
+        );
+        let (base, _handle) = local_server(app).await;
+
+        let peer = PeerInfo {
+            name: "bad-json-peer".to_string(),
+            url: base,
+            api_key: Some("key".to_string()),
+        };
+        let client = reqwest::Client::new();
+        let result = fetch_peer_services(&peer, &client).await;
+
+        assert!(!result.online);
+        assert!(result.services.is_empty());
     }
 }

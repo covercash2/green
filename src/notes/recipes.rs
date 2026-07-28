@@ -96,7 +96,18 @@ impl RecipeStore {
                     RecipeStoreError::RecipeRead { path, source }
                 }
             })?;
-        let live_slugs: HashSet<Slug> = vault_index.all_slugs().into_iter().cloned().collect();
+        let live_slugs: HashSet<Slug> = md_paths
+            .iter()
+            .filter_map(|path| {
+                let note: obsidian::ParsedNote =
+                    obsidian::parse_note(path).ok()?;
+                if note.frontmatter.tags.iter().any(|t| t == "recipe") {
+                    Some(note.slug)
+                } else {
+                    None
+                }
+            })
+            .collect();
 
         // Pass 2: parse, filter by recipe tag, render
         let mut by_category: HashMap<String, Vec<Recipe>> = HashMap::new();

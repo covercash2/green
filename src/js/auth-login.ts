@@ -62,21 +62,23 @@ if (typeof document !== 'undefined') {
     const btn = document.getElementById('auth-btn');
     if (btn) {
         const form = document.getElementById('auth-form');
-        const errEl = document.getElementById('auth-error') as HTMLElement;
+        const errEl = document.getElementById('auth-error');
         const next = form?.dataset.next ?? '/';
 
-        btn.addEventListener('click', async () => {
-            errEl.style.display = 'none';
-            try {
-                const redirect = await authenticateDiscoverable({
-                    startAuthentication: SimpleWebAuthnBrowser.startAuthentication,
-                    next,
-                });
-                window.location.href = redirect;
-            } catch (err) {
-                errEl.textContent = err instanceof Error ? err.message : String(err);
-                errEl.style.display = '';
-            }
-        });
+        if (errEl) {
+            btn.addEventListener('click', async () => {
+                errEl.style.display = 'none';
+                try {
+                    const redirect = await authenticateDiscoverable({
+                        startAuthentication: SimpleWebAuthnBrowser.startAuthentication,
+                        next,
+                    });
+                    window.location.href = redirect;
+                } catch (err) {
+                    errEl.textContent = err instanceof Error ? err.message : String(err);
+                    errEl.style.display = '';
+                }
+            });
+        }
     }
 }
