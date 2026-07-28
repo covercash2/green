@@ -527,10 +527,11 @@ pub struct Cli {
 /// in the nav drawer but its services are not fetched.
 ///
 /// Store the actual key value in a sops-encrypted file and inject it at runtime
-/// via environment variable — see [`Config::load`] for the `GREEN_PEER_API_KEY`
-/// override, which sets `api_key` on **all** peers simultaneously (suitable when
-/// every peer uses the same outbound key).  If peers use different keys, embed
-/// them per-peer and use the sops template to write each value.
+/// where appropriate, but note that [`Config::load`]'s `GREEN_PEER_API_KEY`
+/// override does not populate `peers[].api_key`. To enable outbound service
+/// proxying, configure `api_key` on each peer entry explicitly; if peers use
+/// different keys, embed them per-peer and use the sops template to write each
+/// value.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct PeerInfo {
     /// Human-readable name shown in the nav (e.g. `"orion"`).

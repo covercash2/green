@@ -217,11 +217,6 @@ impl VaultIndex {
     pub fn get(&self, name: &str) -> Option<&NoteRef> {
         self.by_name.get(&name.to_lowercase())
     }
-
-    /// Set of all slugs present in the index.
-    pub fn all_slugs(&self) -> HashSet<&Slug> {
-        self.by_name.values().map(|r| &r.slug).collect()
-    }
 }
 
 /// Errors that can occur while accessing the vault.

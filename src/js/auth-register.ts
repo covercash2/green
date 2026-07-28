@@ -68,21 +68,23 @@ if (typeof document !== 'undefined') {
     const btn = document.getElementById('reg-btn');
     if (btn) {
         const usernameInput = document.getElementById('username') as HTMLInputElement | null;
-        const errEl = document.getElementById('reg-error') as HTMLElement;
+        const errEl = document.getElementById('reg-error');
 
-        btn.addEventListener('click', async () => {
-            const username = usernameInput?.value.trim() ?? '';
-            errEl.style.display = 'none';
+        if (errEl) {
+            btn.addEventListener('click', async () => {
+                const username = usernameInput?.value.trim() ?? '';
+                errEl.style.display = 'none';
 
-            try {
-                const redirect = await register(username, {
-                    startRegistration: SimpleWebAuthnBrowser.startRegistration,
-                });
-                window.location.href = redirect;
-            } catch (err) {
-                errEl.textContent = err instanceof Error ? err.message : String(err);
-                errEl.style.display = '';
-            }
-        });
+                try {
+                    const redirect = await register(username, {
+                        startRegistration: SimpleWebAuthnBrowser.startRegistration,
+                    });
+                    window.location.href = redirect;
+                } catch (err) {
+                    errEl.textContent = err instanceof Error ? err.message : String(err);
+                    errEl.style.display = '';
+                }
+            });
+        }
     }
 }
