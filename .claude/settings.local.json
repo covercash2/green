@@ -16,7 +16,9 @@
       "Bash(just coverage *)",
       "Bash(deno check *)",
       "Bash(just js-test *)",
-      "Bash(nix flake *)"
+      "Bash(nix flake *)",
+      "Bash(jj status *)",
+      "Bash(echo \"grep exit: $?\")"
     ]
   }
 }
