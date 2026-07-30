@@ -128,6 +128,14 @@
         # deno.json sets nodeModulesDir = "none" so all packages (JSR and npm) land
         # in DENO_DIR; no node_modules directory is created or needed.
         #
+        # `deno cache`'s raw output is NOT byte-reproducible between runs on its
+        # own -- cached remote source files embed per-request HTTP response
+        # headers (date, cf-ray, set-cookie, ...) in a trailing comment, npm
+        # registry metadata is served with non-deterministic key ordering, and
+        # deno's own internal analysis-cache SQLite files are never identical
+        # across runs. `normalize-deno-cache.nu` strips all of that down to
+        # deterministic content before it's hashed; see that script for details.
+        #
         # To update after bumping deps in deno.json / deno.lock:
         #   nix build .#packages.x86_64-linux.deno-deps --rebuild 2>&1 | grep "got:"
         # then replace outputHash with the printed value.
@@ -141,10 +149,11 @@
               ./deno.lock
               ./src/js
               ./test/js
+              ./scripts/normalize-deno-cache.nu
             ];
           };
 
-          nativeBuildInputs = [ pkgs.deno ];
+          nativeBuildInputs = [ pkgs.deno pkgs.nushell ];
 
           outputHashMode = "recursive";
           outputHashAlgo = "sha256";
@@ -159,6 +168,7 @@
             export HOME=$TMPDIR
             export DENO_DIR=$TMPDIR/deno-dir
             deno cache --frozen src/js/*.ts test/js/*.test.ts
+            nu scripts/normalize-deno-cache.nu $DENO_DIR
           '';
 
           installPhase = ''
