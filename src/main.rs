@@ -288,7 +288,7 @@ impl ServerState {
 
         let notes_store = config.vault_path.as_ref().map(|vp| {
             let vault = notes::NoteVault::new(vp.clone());
-            vault.spawn_scan();
+            vault.request_scan();
             vault
         });
 
