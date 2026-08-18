@@ -1253,6 +1253,7 @@ mod tests {
         );
         let breaker_content = Arc::new(BreakerContent::new(store.as_ref()));
         ServerState {
+            ultron: crate::ultron::Ultron::new(reqwest::Client::new(), "test".into()).into(),
             certificate: Arc::from(""),
             breaker_content,
             breaker_detail_store: store,
@@ -1437,6 +1438,7 @@ mod tests {
             .unwrap(),
         );
         let state = ServerState {
+            ultron: crate::ultron::Ultron::new(reqwest::Client::new(), "test".into()).into(),
             certificate: Arc::from(""),
             breaker_content: Arc::new(BreakerContent::new(store.as_ref())),
             breaker_detail_store: store,

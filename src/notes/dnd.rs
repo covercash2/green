@@ -468,6 +468,7 @@ mod tests {
         .unwrap();
 
         ServerState {
+            ultron: crate::ultron::Ultron::new(reqwest::Client::new(), "test".into()).into(),
             certificate: Arc::from("fake-cert"),
             breaker_content,
             breaker_detail_store,

@@ -27,6 +27,7 @@ use std::{
     net::SocketAddr,
     path::{Path, PathBuf},
     sync::Arc,
+    time::Duration,
 };
 
 use axum::{extract::State, routing::get};
@@ -40,11 +41,13 @@ use tower_http::{services::ServeDir, trace::TraceLayer};
 use crate::{
     error::Error,
     index::{Index, NavLink},
+    ultron::Ultron,
 };
 
 mod auth;
 mod breaker;
 mod breaker_detail;
+mod deployments;
 mod error;
 mod index;
 mod io;
@@ -55,6 +58,8 @@ mod qr;
 mod route;
 mod services;
 mod tailscale;
+mod text;
+mod ultron;
 
 /// Application version string (semver + git hash).
 pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+", env!("GIT_HASH"));
@@ -196,6 +201,8 @@ impl Route {
 /// Shared application state threaded through all axum handlers.
 #[derive(Debug, Clone)]
 pub struct ServerState {
+    /// Client for sending deployment/webhook notifications to the Ultron chat bot.
+    pub ultron: Arc<Ultron>,
     /// PEM-encoded CA certificate content, served at `/api/ca`.
     pub certificate: Arc<str>,
     /// Pre-rendered breaker-panel HTML.
@@ -344,6 +351,13 @@ impl ServerState {
         )
         .await?;
 
+        let client = reqwest::ClientBuilder::new()
+            .danger_accept_invalid_certs(true)
+            .timeout(Duration::from_secs(10))
+            .build()
+            .map_err(Error::HttpClientBuild)?;
+        let ultron: Arc<Ultron> = Ultron::new(client, "debug".into()).into();
+
         let store = Arc::new(BreakerStore::from_data(breaker_data)?);
         let breaker_content = Arc::new(breaker::BreakerContent::new(store.as_ref()));
 
@@ -428,6 +442,7 @@ impl ServerState {
         };
 
         Ok(ServerState {
+            ultron,
             certificate: Arc::from(ca_content),
             breaker_content,
             breaker_detail_store: store,
@@ -483,6 +498,7 @@ fn build_router(state: ServerState) -> axum::Router {
         .route(Route::LogsErrorsStream.as_str(), get(logs::logs_errors_stream_route))
         .route(Route::Services.as_str(), get(services::services_route))
         .route(Route::ServicesApi.as_str(), get(services::services_api_route))
+        .route("/webhook", axum::routing::post(deployments::webhook))
         .nest_service("/assets", ServeDir::new("assets"))
         .layer(
             TraceLayer::new_for_http()
@@ -723,6 +739,7 @@ pub(crate) mod tests {
         .unwrap();
 
         ServerState {
+            ultron: Ultron::new(reqwest::Client::new(), "test".into()).into(),
             certificate: Arc::from("fake-cert"),
             breaker_content,
             breaker_detail_store,
