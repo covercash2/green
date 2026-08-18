@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(jj file *)",
+      "Bash(cargo fmt *)",
+      "Bash(jj diff *)"
+    ]
+  }
+}

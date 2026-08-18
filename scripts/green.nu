@@ -178,7 +178,14 @@ export def "green index" [
 export def "green ca" [
     address: string@"complete-addresses" = $LOCAL_ADDRESS
 ] {
-    http get $"($address)/api/ca"
+    let endpoint = $"($address)/api/ca"
+
+    print $"Fetching CA from ($endpoint)"
+
+    (http get $endpoint
+        --allow-errors
+        --full
+    )
 }
 
 export def "green logs tail" [
@@ -202,5 +209,5 @@ export def "green logs tail" [
 }
 
 def "complete-addresses" [] {
-    [$LOCAL_ADDRESS]
+    [$LOCAL_ADDRESS "http://home.green.chrash.net"]
 }

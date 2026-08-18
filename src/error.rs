@@ -1,5 +1,3 @@
-use std::path::PathBuf;
-
 use axum::{http::StatusCode, response::IntoResponse};
 use tracing_subscriber::filter::ParseError;
 
@@ -21,11 +19,8 @@ pub enum Error {
         #[from]
         source: notes::recipes::RecipeStoreError,
     },
-    #[error("unable to deserialize TOML file `{path}`: {source}")]
-    DeserializeTomlFile {
-        path: PathBuf,
-        source: toml::de::Error,
-    },
+    #[error("unable to build HTTP client: {0}")]
+    HttpClientBuild(reqwest::Error),
 
     #[error("unable to parse log level")]
     EnvLevel { source: ParseError },
@@ -110,7 +105,7 @@ impl IntoResponse for Error {
             | Error::TailscaleDeserialize { .. } => StatusCode::BAD_GATEWAY,
             Error::MqttNotConfigured | Error::LogsNotConfigured => StatusCode::NOT_FOUND,
             Error::EnvLevel { .. }
-            | Error::DeserializeTomlFile { .. }
+            | Error::HttpClientBuild(_)
             | Error::TemplateRender { .. }
             | Error::InvalidAddress { .. }
             | Error::ServerStart { .. }

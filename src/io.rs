@@ -1,18 +1,31 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use serde::de::DeserializeOwned;
 
 #[derive(Debug, thiserror::Error)]
 pub enum IoError {
-    #[error("failed to read file `{path}`: {source}")]
+    #[error("failed to read file at '{path}'")]
     FileRead {
-        path: std::path::PathBuf,
         source: std::io::Error,
+        path: PathBuf,
     },
-    #[error("failed to deserialize TOML file `{path}`: {source}")]
+
+    #[error("failed to write file at '{path}'")]
+    FileWrite {
+        source: std::io::Error,
+        path: PathBuf,
+    },
+
+    #[error("failed to deserialize TOML file at '{path}'")]
     DeserializeTomlFile {
-        path: std::path::PathBuf,
         source: toml::de::Error,
+        path: PathBuf,
+    },
+
+    #[error("failed to read directory at '{path}'")]
+    DirectoryRead {
+        source: std::io::Error,
+        path: PathBuf,
     },
 }
 
@@ -21,6 +34,16 @@ pub async fn read_file(path: impl AsRef<Path>) -> Result<String, IoError> {
     tokio::fs::read_to_string(path)
         .await
         .map_err(|source| IoError::FileRead {
+            path: path.to_path_buf(),
+            source,
+        })
+}
+
+pub async fn write_file(path: impl AsRef<Path>, content: &str) -> Result<(), IoError> {
+    let path = path.as_ref();
+    tokio::fs::write(path, content)
+        .await
+        .map_err(|source| IoError::FileWrite {
             path: path.to_path_buf(),
             source,
         })
@@ -35,13 +58,39 @@ pub async fn load_toml_file<T: DeserializeOwned>(path: impl AsRef<Path>) -> Resu
     })
 }
 
+#[allow(dead_code)] // not yet called; added for a future deploy step
+pub async fn read_directory(path: impl AsRef<Path>) -> Result<Vec<PathBuf>, IoError> {
+    let path = path.as_ref();
+    let mut entries = tokio::fs::read_dir(path)
+        .await
+        .map_err(|source| IoError::DirectoryRead {
+            source,
+            path: path.to_path_buf(),
+        })?;
+
+    let mut paths = Vec::new();
+
+    while let Some(entry) = entries
+        .next_entry()
+        .await
+        .map_err(|source| IoError::DirectoryRead {
+            source,
+            path: path.to_path_buf(),
+        })?
+    {
+        paths.push(entry.path());
+    }
+
+    Ok(paths)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use serde::Deserialize;
 
     // Each test uses a unique path (pid-based) since nextest gives process isolation.
-    fn tmp(name: &str) -> std::path::PathBuf {
+    fn tmp(name: &str) -> PathBuf {
         std::env::temp_dir().join(format!("green_io_{}_{}.tmp", std::process::id(), name))
     }
 
