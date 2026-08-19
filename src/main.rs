@@ -245,6 +245,12 @@ pub struct ServerState {
     /// Set via `GREEN_PEER_API_KEY` environment variable (injected by sops-nix
     /// at runtime).  When `None`, inbound peer auth via API key is disabled.
     pub peer_api_key: Option<Arc<str>>,
+    /// GitHub webhook secret for verifying `X-Hub-Signature-256` on `/webhook`.
+    ///
+    /// Set via the `deployment.webhook_secret` config key (or
+    /// `GREEN_WEBHOOK_SECRET` env var).  When `None`, signature verification
+    /// is skipped (useful for development, but not recommended in production).
+    pub webhook_secret: Option<Arc<str>>,
 }
 
 impl ServerState {
@@ -352,7 +358,6 @@ impl ServerState {
         .await?;
 
         let client = reqwest::ClientBuilder::new()
-            .danger_accept_invalid_certs(true)
             .timeout(Duration::from_secs(10))
             .build()
             .map_err(Error::HttpClientBuild)?;
@@ -458,6 +463,11 @@ impl ServerState {
             peers: config.peers.clone().into(),
             http_client,
             peer_api_key: config.peer_api_key.as_deref().map(Arc::from),
+            webhook_secret: config
+                .deployment
+                .as_ref()
+                .and_then(|d| d.webhook_secret.as_deref())
+                .map(Arc::from),
         })
     }
 }
@@ -561,6 +571,17 @@ pub struct PeerInfo {
     pub api_key: Option<String>,
 }
 
+/// Configuration for the GitHub webhook deployment endpoint.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct DeploymentConfig {
+    /// Shared secret used to verify `X-Hub-Signature-256` on incoming webhooks.
+    ///
+    /// Prefer injecting this via the `GREEN_WEBHOOK_SECRET` environment variable
+    /// rather than storing it in config.toml.
+    #[serde(default)]
+    pub webhook_secret: Option<String>,
+}
+
 /// Application configuration loaded from a TOML file.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Config {
@@ -614,6 +635,9 @@ pub struct Config {
     /// `GREEN_PEER_API_KEY` environment variable (see [`Config::load`]).
     #[serde(default)]
     pub peer_api_key: Option<String>,
+    /// Deployment/webhook configuration.
+    #[serde(default)]
+    pub deployment: Option<DeploymentConfig>,
 }
 
 impl Config {
@@ -640,6 +664,15 @@ impl Config {
         //   GREEN_PEER_API_KEY=<decrypted value>
         if let Ok(key) = std::env::var("GREEN_PEER_API_KEY") {
             config.peer_api_key = Some(key);
+        }
+        // Allow overriding the webhook secret via environment variable.
+        if let Ok(secret) = std::env::var("GREEN_WEBHOOK_SECRET") {
+            config
+                .deployment
+                .get_or_insert_with(|| DeploymentConfig {
+                    webhook_secret: None,
+                })
+                .webhook_secret = Some(secret);
         }
         Ok(config)
     }
@@ -755,6 +788,7 @@ pub(crate) mod tests {
             peers: Arc::new([]),
             http_client: reqwest::Client::new(),
             peer_api_key: None,
+            webhook_secret: None,
         }
     }
 

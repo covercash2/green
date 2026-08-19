@@ -69,7 +69,7 @@ impl<'text> Span<'text> {
             if c == open_delimiter {
                 depth += 1;
             } else if c == close_delimiter {
-                depth -= 1;
+                depth = depth.checked_sub(1)?;
                 if depth == 0 {
                     return Some(Span {
                         text: self.text,
@@ -86,7 +86,7 @@ impl<'text> Span<'text> {
         let mut chars = self.as_str().char_indices();
 
         let start_pos = chars.find(|&(_, c)| c == delimiter)?.0 + delimiter.len_utf8();
-        let end_pos = chars.skip(start_pos).find(|&(_, c)| c == delimiter)?.0;
+        let end_pos = chars.find(|&(_, c)| c == delimiter)?.0;
 
         Some(Span {
             text: self.text,
@@ -141,5 +141,67 @@ mod tests {
 
         assert_eq!(sub_span.len(), sub_span.as_str().len());
         assert_eq!(sub_span.as_str(), "world");
+    }
+
+    #[test]
+    fn get_matching_delimiters_basic() {
+        let span = Span::from("{hello}world");
+        let matched = span
+            .get_matching_delimiters('{', '}')
+            .expect("should find matching delimiters");
+        assert_eq!(matched.as_str(), "{hello}");
+    }
+
+    #[test]
+    fn get_matching_delimiters_nested() {
+        let span = Span::from("{a {b} c} rest");
+        let matched = span
+            .get_matching_delimiters('{', '}')
+            .expect("should find matching delimiters");
+        assert_eq!(matched.as_str(), "{a {b} c}");
+    }
+
+    #[test]
+    fn get_matching_delimiters_unmatched_close_returns_none() {
+        // A close delimiter before any open delimiter must not underflow depth.
+        let span = Span::from("}hello{");
+        assert!(span.get_matching_delimiters('{', '}').is_none());
+    }
+
+    #[test]
+    fn get_matching_delimiters_no_open_returns_none() {
+        let span = Span::from("no delimiters here");
+        assert!(span.get_matching_delimiters('{', '}').is_none());
+    }
+
+    #[test]
+    fn get_inner_delimiter_basic() {
+        let span = Span::from(r#""hello world""#);
+        let inner = span
+            .get_inner_delimiter('"')
+            .expect("should find inner delimiter");
+        assert_eq!(inner.as_str(), "hello world");
+    }
+
+    #[test]
+    fn get_inner_delimiter_with_prefix() {
+        let span = Span::from(r#"rev = "abc123""#);
+        let inner = span
+            .get_inner_delimiter('"')
+            .expect("should find inner delimiter");
+        assert_eq!(inner.as_str(), "abc123");
+    }
+
+    #[test]
+    fn get_inner_delimiter_no_delimiters_returns_none() {
+        let span = Span::from("no quotes here");
+        assert!(span.get_inner_delimiter('"').is_none());
+    }
+
+    #[test]
+    fn get_inner_delimiter_only_one_delimiter_returns_none() {
+        let span = Span::from(r#"only "one"#);
+        // Opening delimiter found, but no closing delimiter.
+        assert!(span.get_inner_delimiter('"').is_none());
     }
 }

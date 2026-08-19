@@ -8,23 +8,43 @@
 //! - check healthcheck endpoint
 //! - check status of ultron systemd service
 
-use std::{
-    path::{Path, PathBuf},
-    sync::Arc,
+use std::path::{Path, PathBuf};
+
+use axum::{
+    body::Bytes,
+    extract::State,
+    http::{HeaderMap, StatusCode},
 };
+use hmac::{Hmac, Mac};
+use sha2::Sha256;
 
 use crate::{
+    ServerState,
     deployments::{
         github::{Push, WebhookPayload},
         nix::SystemFlake,
     },
-    ultron::Ultron,
 };
 
 mod github;
 mod nix;
 
-/// path to the system flake
+type HmacSha256 = Hmac<Sha256>;
+
+/// Expand a leading `~` to the value of the `HOME` environment variable.
+fn expand_tilde(path: &str) -> PathBuf {
+    if let Some(rest) = path.strip_prefix("~/") {
+        let home = std::env::var("HOME").unwrap_or_else(|_| "/root".to_string());
+        PathBuf::from(home).join(rest)
+    } else if path == "~" {
+        let home = std::env::var("HOME").unwrap_or_else(|_| "/root".to_string());
+        PathBuf::from(home)
+    } else {
+        PathBuf::from(path)
+    }
+}
+
+/// path to the system flake (tilde will be expanded at runtime)
 const FLAKE_PATH: &str = "~/.local/share/chezmoi/nixos/flake.nix";
 
 type DeploymentResult<T> = Result<T, DeploymentError>;
@@ -55,7 +75,8 @@ pub enum DeploymentError {
 
 /// load the system flake and deploy the latest push to it
 async fn trigger_deploy(hook: &Push) -> DeploymentResult<()> {
-    let system_flake = SystemFlake::load(FLAKE_PATH).await?;
+    let flake_path = expand_tilde(FLAKE_PATH);
+    let system_flake = SystemFlake::load(&flake_path).await?;
 
     deploy_ultron(hook, system_flake).await
 }
@@ -132,7 +153,48 @@ async fn build_ultron(flake_path: &Path, dry_run: bool) -> DeploymentResult<()> 
     }
 }
 
-pub async fn webhook(ultron: Arc<Ultron>, payload: WebhookPayload) -> Result<(), &'static str> {
+/// Verify the GitHub webhook signature from `X-Hub-Signature-256`.
+///
+/// Returns `Ok(())` if the signature matches or if no secret is configured.
+/// Returns `Err(...)` with a 401 status if the signature is missing or invalid.
+fn verify_signature(
+    secret: &str,
+    headers: &HeaderMap,
+    body: &[u8],
+) -> Result<(), (StatusCode, &'static str)> {
+    let sig_header = headers
+        .get("X-Hub-Signature-256")
+        .and_then(|v| v.to_str().ok())
+        .ok_or((StatusCode::UNAUTHORIZED, "missing X-Hub-Signature-256 header"))?;
+
+    let sig_hex = sig_header
+        .strip_prefix("sha256=")
+        .ok_or((StatusCode::UNAUTHORIZED, "malformed X-Hub-Signature-256 header"))?;
+
+    let expected = hex::decode(sig_hex)
+        .map_err(|_| (StatusCode::UNAUTHORIZED, "invalid hex in signature header"))?;
+
+    let mut mac =
+        HmacSha256::new_from_slice(secret.as_bytes()).expect("HMAC accepts any key length");
+    mac.update(body);
+    mac.verify_slice(&expected)
+        .map_err(|_| (StatusCode::UNAUTHORIZED, "webhook signature mismatch"))
+}
+
+pub async fn webhook(
+    State(state): State<ServerState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<(), (StatusCode, &'static str)> {
+    if let Some(secret) = &state.webhook_secret {
+        verify_signature(secret, &headers, &body)?;
+    }
+
+    let ultron = state.ultron.clone();
+
+    let payload: WebhookPayload = serde_json::from_slice(&body)
+        .map_err(|_| (StatusCode::BAD_REQUEST, "invalid webhook payload"))?;
+
     let message = match &payload {
         WebhookPayload::Push(push) => {
             tracing::info!(?push, "Received push webhook");
@@ -164,7 +226,7 @@ pub async fn webhook(ultron: Arc<Ultron>, payload: WebhookPayload) -> Result<(),
                 builder.push_str(&format!("\ncompare changes: {}", push.compare));
             }
 
-            if !&push.commits.is_empty() {
+            if !push.commits.is_empty() {
                 builder.push_str(&format!("\n\n### {} commit(s):", push.commits.len()));
             }
 
@@ -190,7 +252,7 @@ pub async fn webhook(ultron: Arc<Ultron>, payload: WebhookPayload) -> Result<(),
         .inspect_err(|error| {
             tracing::error!(%error, "failed to send deployment notification to Ultron");
         })
-        .map_err(|_| "failed to send deployment notification to Ultron")?;
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "failed to send deployment notification to Ultron"))?;
 
     tracing::info!(message, "Received deployment webhook",);
 
@@ -201,6 +263,28 @@ pub async fn webhook(ultron: Arc<Ultron>, payload: WebhookPayload) -> Result<(),
 mod tests {
     use super::*;
 
+    #[test]
+    fn expand_tilde_replaces_home() {
+        // SAFETY: single-threaded test
+        unsafe { std::env::set_var("HOME", "/home/testuser") };
+        let expanded = expand_tilde("~/.config/test");
+        assert_eq!(expanded, PathBuf::from("/home/testuser/.config/test"));
+    }
+
+    #[test]
+    fn expand_tilde_tilde_only() {
+        // SAFETY: single-threaded test
+        unsafe { std::env::set_var("HOME", "/home/testuser") };
+        let expanded = expand_tilde("~");
+        assert_eq!(expanded, PathBuf::from("/home/testuser"));
+    }
+
+    #[test]
+    fn expand_tilde_no_tilde() {
+        let expanded = expand_tilde("/absolute/path");
+        assert_eq!(expanded, PathBuf::from("/absolute/path"));
+    }
+
     #[tokio::test]
     async fn deploy_ultron_skips_non_main_branch() {
         let mut push = Push::test();
@@ -210,5 +294,49 @@ mod tests {
         deploy_ultron(&push, system_flake)
             .await
             .expect("deploy should skip non-main branch without error");
+    }
+
+    #[test]
+    fn verify_signature_missing_header_returns_401() {
+        let headers = HeaderMap::new();
+        let result = verify_signature("secret", &headers, b"body");
+        assert!(result.is_err());
+        let (status, _) = result.unwrap_err();
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+    }
+
+    #[test]
+    fn verify_signature_valid() {
+        use hmac::Mac as _;
+        let secret = "my-secret";
+        let body = b"test payload";
+        let mut mac = HmacSha256::new_from_slice(secret.as_bytes()).unwrap();
+        mac.update(body);
+        let sig = hex::encode(mac.finalize().into_bytes());
+
+        let mut headers = HeaderMap::new();
+        let _ = headers.insert(
+            "X-Hub-Signature-256",
+            format!("sha256={sig}").parse().unwrap(),
+        );
+
+        let result = verify_signature(secret, &headers, body);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn verify_signature_invalid_returns_401() {
+        let mut headers = HeaderMap::new();
+        let _ = headers.insert(
+            "X-Hub-Signature-256",
+            "sha256=0000000000000000000000000000000000000000000000000000000000000000"
+                .parse()
+                .unwrap(),
+        );
+
+        let result = verify_signature("secret", &headers, b"body");
+        assert!(result.is_err());
+        let (status, _) = result.unwrap_err();
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
     }
 }

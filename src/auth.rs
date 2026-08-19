@@ -978,9 +978,9 @@ mod tests {
             peers: Arc::new([]),
             http_client: reqwest::Client::new(),
             peer_api_key: None,
+            webhook_secret: None,
         }
     }
-
     async fn insert_session(state: &ServerState, username: &str, role: Role) -> String {
         let auth = state.auth_state.as_ref().unwrap();
         let token = Uuid::new_v4().to_string();
