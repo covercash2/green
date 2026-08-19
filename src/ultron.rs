@@ -54,12 +54,11 @@ impl FromRequestParts<ServerState> for Arc<Ultron> {
 }
 
 async fn send_message(client: &Client, message: &str, channel: &str) -> Result<(), UltronError> {
-    let message = format!("echo {message}");
     let payload = serde_json::json!({
         "channel": channel,
         "event_input": message,
         "user": "green",
-        "event_type": "command",
+        "event_type": "message",
     });
 
     let response = client

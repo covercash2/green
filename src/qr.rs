@@ -114,6 +114,7 @@ mod tests {
             peers: Arc::new([]),
             http_client: reqwest::Client::new(),
             peer_api_key: None,
+            webhook_secret: None,
         }
     }
 

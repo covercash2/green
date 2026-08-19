@@ -1277,6 +1277,7 @@ mod tests {
             peers: Arc::new([]),
             http_client: reqwest::Client::new(),
             peer_api_key: None,
+            webhook_secret: None,
         }
     }
 
@@ -1462,6 +1463,7 @@ mod tests {
             peers: Arc::new([]),
             http_client: reqwest::Client::new(),
             peer_api_key: None,
+            webhook_secret: None,
         };
         let app = Router::new()
             .route("/metrics", get(metrics_route))

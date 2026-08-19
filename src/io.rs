@@ -4,25 +4,25 @@ use serde::de::DeserializeOwned;
 
 #[derive(Debug, thiserror::Error)]
 pub enum IoError {
-    #[error("failed to read file at '{path}'")]
+    #[error("failed to read file at '{path}': {source}")]
     FileRead {
         source: std::io::Error,
         path: PathBuf,
     },
 
-    #[error("failed to write file at '{path}'")]
+    #[error("failed to write file at '{path}': {source}")]
     FileWrite {
         source: std::io::Error,
         path: PathBuf,
     },
 
-    #[error("failed to deserialize TOML file at '{path}'")]
+    #[error("failed to deserialize TOML file at '{path}': {source}")]
     DeserializeTomlFile {
         source: toml::de::Error,
         path: PathBuf,
     },
 
-    #[error("failed to read directory at '{path}'")]
+    #[error("failed to read directory at '{path}': {source}")]
     DirectoryRead {
         source: std::io::Error,
         path: PathBuf,
