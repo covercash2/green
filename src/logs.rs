@@ -16,7 +16,7 @@ use tokio::io::{AsyncBufReadExt, AsyncSeekExt, BufReader};
 
 use crate::{
     ServerState,
-    auth::{AuthUserInfo, GmUser},
+    auth::{AdminUser, AuthUserInfo},
     error::Error,
     index::NavLink,
 };
@@ -51,9 +51,9 @@ struct LogsErrorsPage {
     nav_links: Arc<[NavLink]>,
 }
 
-/// GET `/logs/app` — renders the app trace log page (GM only).
+/// GET `/logs/app` — renders the app trace log page (admin only).
 pub async fn logs_app_route(
-    user: GmUser,
+    user: AdminUser,
     State(state): State<ServerState>,
 ) -> Result<Html<String>, Error> {
     let auth_user = Some(AuthUserInfo {
@@ -70,9 +70,9 @@ pub async fn logs_app_route(
     ))
 }
 
-/// GET `/logs/errors` — renders the error log page (GM only).
+/// GET `/logs/errors` — renders the error log page (admin only).
 pub async fn logs_errors_route(
-    user: GmUser,
+    user: AdminUser,
     State(state): State<ServerState>,
 ) -> Result<Html<String>, Error> {
     let auth_user = Some(AuthUserInfo {
@@ -145,9 +145,9 @@ fn tail_log_stream(path: PathBuf) -> impl Stream<Item = Result<Event, Infallible
     })
 }
 
-/// GET `/api/logs/app/stream` — SSE stream of app trace log lines (GM only).
+/// GET `/api/logs/app/stream` — SSE stream of app trace log lines (admin only).
 pub async fn logs_app_stream_route(
-    _user: GmUser,
+    _user: AdminUser,
     State(state): State<ServerState>,
 ) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, Error> {
     let path = state
@@ -159,9 +159,9 @@ pub async fn logs_app_stream_route(
     Ok(Sse::new(tail_log_stream(path)).keep_alive(KeepAlive::default()))
 }
 
-/// GET `/api/logs/errors/stream` — SSE stream of error log lines (GM only).
+/// GET `/api/logs/errors/stream` — SSE stream of error log lines (admin only).
 pub async fn logs_errors_stream_route(
-    _user: GmUser,
+    _user: AdminUser,
     State(state): State<ServerState>,
 ) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, Error> {
     let path = state

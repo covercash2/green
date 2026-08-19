@@ -89,11 +89,11 @@ pub(crate) fn render_markdown(md: &str) -> RenderedHtml {
     RenderedHtml(output)
 }
 
-/// Server-side placeholder emitted in place of every secret paragraph for non-GM viewers.
+/// Server-side placeholder emitted in place of every secret paragraph for non-admin viewers.
 /// The secret text is never included in the response.
 pub(crate) const SECRET_PLACEHOLDER: &str = "<p class=\"notes-redacted\">🔒 redacted</p>\n";
 
-/// Render the note body for a non-GM viewer.
+/// Render the note body for a non-admin viewer.
 ///
 /// Secret paragraphs (inline `#secret` tag) are replaced with
 /// [`SECRET_PLACEHOLDER`] — the secret text is **never sent to the browser**.
@@ -114,7 +114,7 @@ pub(crate) fn render_note_body_redacted(text: &str) -> (RenderedHtml, bool) {
     (RenderedHtml(output), has_secrets)
 }
 
-/// Render the full note body for a GM viewer: all paragraphs, including secret
+/// Render the full note body for an admin viewer: all paragraphs, including secret
 /// ones, rendered as plain Markdown HTML with no redaction or wrapper.
 pub(crate) fn render_note_body_revealed(text: &str) -> RenderedHtml {
     let parts = obsidian::split_on_secret_paragraphs(text);
@@ -447,10 +447,10 @@ mod tests {
     fn render_body_revealed_includes_secret_text() {
         let text = "**bold secret** #secret\n";
         let html = render_note_body_revealed(text);
-        // GM view: secret text is rendered (no redaction).
+        // Admin view: secret text is rendered (no redaction).
         assert!(
             html.as_str().contains("bold secret"),
-            "GM view must include secret text"
+            "Admin view must include secret text"
         );
     }
 }

@@ -167,11 +167,11 @@ The application has two types of routes:
    - `/assets` - Static file serving
    - `/auth/login`, `/auth/register` - Passkey auth pages
    - `/auth/recover` - Account recovery via ntfy OTC
-   - `/breaker` - Breaker box panel (GM only)
-   - `/tailscale` - Tailscale peer list (GM only)
+   - `/breaker` - Breaker box panel (admin only)
+   - `/tailscale` - Tailscale peer list (admin only)
    - `/notes`, `/notes/{slug}` - Notes vault pages
-   - `/mqtt` - Live MQTT message feed (GM only; SSE stream)
-   - `/mqtt/devices` - Device inventory table (GM only)
+   - `/mqtt` - Live MQTT message feed (admin only; SSE stream)
+   - `/mqtt/devices` - Device inventory table (admin only)
    - `/metrics` - Prometheus scrape endpoint (unauthenticated)
 
 2. **Dynamic Routes** (configured via TOML):
@@ -187,9 +187,9 @@ The application has two types of routes:
   - `Route` enum - Static route definitions
 
 - `auth.rs` - WebAuthn / passkey authentication
-  - `AuthConfig` - Config struct (`rp_id`, `rp_origin`, `db_url`, `gm_users`, `ntfy_url`)
+  - `AuthConfig` - Config struct (`rp_id`, `rp_origin`, `db_url`, `admin_users`, `ntfy_url`)
   - `AuthState` - Shared state: DB pool, session store, reg/auth/OTC challenge stores, reusable HTTP client
-  - Extractors: `AuthUser`, `GmUser`, `MaybeAuthUser`
+  - Extractors: `AuthUser`, `AdminUser`, `MaybeAuthUser`
   - Handlers: login/register challenge+finish, logout, **recovery** (GET+POST `/auth/recover`, POST `/auth/recover/verify`)
   - Recovery: generates a 6-char A–Z0–9 OTC (rejection-sampling, no modulo bias), stores it with a 10-minute TTL, sends it via ntfy, then verifies atomically and invalidates all existing sessions
 
@@ -219,7 +219,7 @@ description = "Service description"
 rp_id = "example.com"              # WebAuthn relying party ID
 rp_origin = "https://green.example.com"
 db_url = "postgres://green:pass@localhost/green"  # overridable by GREEN_DB_URL env var
-gm_users = ["alice"]               # usernames that receive the GM role
+admin_users = ["alice"]            # usernames that receive the admin role
 ntfy_url = "https://ntfy.example.com/my-secret-topic"  # optional; recovery codes sent here
 
 [mqtt]
@@ -283,7 +283,7 @@ The flake provides a NixOS module at `nixosModules.default` for deploying as a s
 | `auth.rpId` | str | — | WebAuthn RP ID |
 | `auth.rpOrigin` | str | — | WebAuthn origin URL |
 | `auth.dbUrl` | str | — | Postgres connection URL (put a placeholder; use `dbUrlFile` in prod) |
-| `auth.gmUsers` | listOf str | `[]` | Usernames with GM role |
+| `auth.adminUsers` | listOf str | `[]` | Usernames with admin role |
 | `auth.ntfyUrl` | str or null | null | ntfy topic URL for recovery codes |
 | `auth.dbUrlFile` | path or null | null | Path to EnvironmentFile containing `GREEN_DB_URL=…`; overrides `dbUrl` at runtime |
 

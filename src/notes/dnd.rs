@@ -15,7 +15,7 @@ use axum::{
 
 use crate::{
     ServerState, VERSION,
-    auth::{AuthUserInfo, GmUser, MaybeAuthUser, Role},
+    auth::{AdminUser, AuthUserInfo, MaybeAuthUser, Role},
     error::Error,
     index::NavLink,
 };
@@ -34,8 +34,8 @@ pub struct Note {
     pub title: String,
     /// Player-visible HTML: secret blocks wrapped in `<div class="notes-secret">`.
     pub html: RenderedHtml,
-    /// GM-visible HTML: secret blocks rendered without the wrapper.
-    pub html_gm: RenderedHtml,
+    /// Admin-visible HTML: secret blocks rendered without the wrapper.
+    pub html_admin: RenderedHtml,
     /// `true` if the note contains any secret blocks (inline or whole-note).
     /// Used to show a 🔒 badge on the index.
     pub has_secrets: bool,
@@ -171,7 +171,7 @@ impl NotesStore {
 
             // Render markdown first (HTML-escapes user text), then resolve wiki links
             // on the HTML so `<a>` tags are not re-escaped by pulldown-cmark.
-            let (html, html_gm, has_secrets) = if is_whole_secret {
+            let (html, html_admin, has_secrets) = if is_whole_secret {
                 let player = RenderedHtml(SECRET_PLACEHOLDER.to_owned());
                 let gm_rendered = render_note_body_revealed(body);
                 let gm = RenderedHtml(obsidian::resolve_wiki_links(
@@ -203,7 +203,7 @@ impl NotesStore {
                 slug: slug.clone(),
                 title,
                 html,
-                html_gm,
+                html_admin,
                 has_secrets,
             };
 
@@ -381,12 +381,12 @@ pub async fn notes_detail_route(
         .await
         .ok_or(Error::NotFound)?;
     let note = store.get(&slug).ok_or(Error::NotFound)?;
-    let is_gm = auth_user
+    let is_admin = auth_user
         .as_ref()
-        .map(|u| u.role == Role::Gm)
+        .map(|u| u.role == Role::Admin)
         .unwrap_or(false);
-    let content = if is_gm {
-        note.html_gm.as_str().to_owned()
+    let content = if is_admin {
+        note.html_admin.as_str().to_owned()
     } else {
         note.html.as_str().to_owned()
     };
@@ -400,13 +400,13 @@ pub async fn notes_detail_route(
     Ok(Html(page.render()?))
 }
 
-/// `POST /api/notes/refresh` — trigger a background rescan of the notes vault (GM only).
+/// `POST /api/notes/refresh` — trigger a background rescan of the notes vault (admin only).
 ///
 /// Returns `202 Accepted` immediately; the scan runs in the background. A
 /// subsequent GET to `/notes` will reflect the updated content once the scan
 /// completes.
 pub async fn notes_refresh_route(
-    GmUser(_): GmUser,
+    AdminUser(_): AdminUser,
     State(state): State<ServerState>,
 ) -> axum::http::StatusCode {
     match state.notes_store.as_ref() {
@@ -614,12 +614,12 @@ mod tests {
     }
 
     #[test]
-    fn scan_inline_secret_content_present_in_gm_html() {
+    fn scan_inline_secret_content_present_in_admin_html() {
         // GM variant must contain the full secret text.
         let store = fixture_store();
         let session = store.get("session-1").expect("session-1 should exist");
         assert!(
-            session.html_gm.as_str().contains("Malachar"),
+            session.html_admin.as_str().contains("Malachar"),
             "secret text must be present in GM HTML"
         );
     }
@@ -641,11 +641,11 @@ mod tests {
     }
 
     #[test]
-    fn scan_whole_note_secret_gm_html_contains_content() {
+    fn scan_whole_note_secret_admin_html_contains_content() {
         let store = fixture_store();
         let gm = store.get("gm-notes").expect("gm-notes should exist");
         assert!(
-            gm.html_gm.as_str().contains("portal"),
+            gm.html_admin.as_str().contains("portal"),
             "GM HTML must contain full note content"
         );
     }
@@ -812,7 +812,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn handler_notes_detail_secret_content_absent_for_non_gm() {
+    async fn handler_notes_detail_secret_content_absent_for_non_admin() {
         let store = Some(Arc::new(fixture_store()));
         let state = minimal_state(store).await;
         let app = notes_router(state);

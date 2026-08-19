@@ -7,7 +7,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use crate::{
     ServerState,
-    auth::{AuthUserInfo, GmUser},
+    auth::{AdminUser, AuthUserInfo},
     error::Error,
     index::NavLink,
 };
@@ -441,7 +441,7 @@ mod tests {
 }
 
 pub async fn tailscale_route(
-    user: GmUser,
+    user: AdminUser,
     State(state): State<ServerState>,
 ) -> Result<Html<String>, Error> {
     let mut status = fetch_status(&state.tailscale_socket).await?;

@@ -6,7 +6,7 @@ log_level = "info"
 rp_id = "chrash.net"
 rp_origin = "https://home.green.chrash.net"
 db_url = "postgres://green:REDACTED@localhost/green"
-gm_users = ["chrash"]
+admin_users = ["chrash"]
 
 [routes.foundry]
 url = "foundry.green.chrash.net"

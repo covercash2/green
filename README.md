@@ -9,7 +9,7 @@ Home services hub — a self-hosted landing page and internal tooling server.
 - **Device inventory** — tracks which devices have appeared on each MQTT integration
 - **Notes vault** — renders an Obsidian-style Markdown vault, filtered by tag
 - **Breaker box** — visual breaker panel rendered from Markdown
-- **Passkey auth** — WebAuthn login; GM role gates privileged pages
+- **Passkey auth** — WebAuthn login; admin role gates privileged pages
 - **Account recovery** — one-time codes delivered via [ntfy](https://ntfy.sh)
 - **Prometheus metrics** — `/metrics` endpoint for MQTT message counters
 - **CA endpoint** — `/api/ca` serves the internal CA certificate
