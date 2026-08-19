@@ -27,7 +27,7 @@ use tokio::sync::{Mutex as TokioMutex, broadcast, watch};
 
 use crate::{
     ServerState,
-    auth::{AuthUserInfo, GmUser},
+    auth::{AdminUser, AuthUserInfo},
     error::Error,
     index::NavLink,
 };
@@ -1216,7 +1216,7 @@ mod tests {
             rp_id: "localhost".to_string(),
             rp_origin: "http://localhost".to_string(),
             db_url: "postgres://localhost/nonexistent".to_string(),
-            gm_users: vec!["gm".to_string()],
+            admin_users: vec!["admin".to_string()],
             ntfy_url: None,
         })
         .unwrap();
@@ -1281,15 +1281,15 @@ mod tests {
         }
     }
 
-    async fn insert_gm_session(state: &ServerState) -> String {
+    async fn insert_admin_session(state: &ServerState) -> String {
         let auth = state.auth_state.as_ref().unwrap();
         let token = Uuid::new_v4().to_string();
         let _ = auth.session_store.write().await.insert(
             token.clone(),
             SessionData {
                 user_id: Uuid::new_v4(),
-                username: "gm".to_string(),
-                role: Role::Gm,
+                username: "admin".to_string(),
+                role: Role::Admin,
                 created_at: Instant::now(),
             },
         );
@@ -1305,9 +1305,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn publish_route_returns_204_for_gm() {
+    async fn publish_route_returns_204_for_admin() {
         let state = state_with_mqtt().await;
-        let token = insert_gm_session(&state).await;
+        let token = insert_admin_session(&state).await;
         let app = Router::new()
             .route("/api/mqtt/publish", post(publish_route))
             .with_state(state);
@@ -1327,7 +1327,7 @@ mod tests {
     #[tokio::test]
     async fn device_messages_route_includes_cmd_form() {
         let state = state_with_mqtt().await;
-        let token = insert_gm_session(&state).await;
+        let token = insert_admin_session(&state).await;
         let app = Router::new()
             .route("/api/mqtt/device-messages", get(device_messages_route))
             .with_state(state);
@@ -1354,9 +1354,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn mqtt_page_route_returns_html_for_gm() {
+    async fn mqtt_page_route_returns_html_for_admin() {
         let state = state_with_mqtt().await;
-        let token = insert_gm_session(&state).await;
+        let token = insert_admin_session(&state).await;
         let app = Router::new()
             .route("/mqtt", get(mqtt_page_route))
             .with_state(state);
@@ -1375,9 +1375,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn mqtt_stream_route_returns_sse_for_gm() {
+    async fn mqtt_stream_route_returns_sse_for_admin() {
         let state = state_with_mqtt().await;
-        let token = insert_gm_session(&state).await;
+        let token = insert_admin_session(&state).await;
         let app = Router::new()
             .route("/api/mqtt/stream", get(mqtt_stream_route))
             .with_state(state);
@@ -1500,9 +1500,9 @@ struct MqttPage {
     nav_links: Arc<[NavLink]>,
 }
 
-/// GET `/mqtt` — renders the MQTT live-feed page (GM only).
+/// GET `/mqtt` — renders the MQTT live-feed page (admin only).
 pub async fn mqtt_page_route(
-    user: GmUser,
+    user: AdminUser,
     State(state): State<ServerState>,
 ) -> Result<Html<String>, Error> {
     let auth_user = Some(AuthUserInfo {
@@ -1670,9 +1670,9 @@ fn build_sse_stream(
     })
 }
 
-/// GET `/api/mqtt/stream` — SSE stream of live MQTT messages (GM only).
+/// GET `/api/mqtt/stream` — SSE stream of live MQTT messages (admin only).
 pub async fn mqtt_stream_route(
-    _user: GmUser,
+    _user: AdminUser,
     State(state): State<ServerState>,
 ) -> Result<Sse<impl futures::Stream<Item = Result<Event, Infallible>>>, Error> {
     let mqtt = state.mqtt_state.as_ref().ok_or(Error::MqttNotConfigured)?;
@@ -1695,9 +1695,9 @@ pub struct MqttPublishRequest {
     pub payload: String,
 }
 
-/// POST `/api/mqtt/publish` — publish a message to the broker (GM only).
+/// POST `/api/mqtt/publish` — publish a message to the broker (admin only).
 pub async fn publish_route(
-    _user: GmUser,
+    _user: AdminUser,
     State(state): State<ServerState>,
     Json(req): Json<MqttPublishRequest>,
 ) -> Result<axum::http::StatusCode, Error> {
@@ -1727,9 +1727,9 @@ pub struct DeviceMessagesQuery {
 }
 
 /// GET `/api/mqtt/device-messages` — returns recent ring-buffer messages for one device
-/// as pre-rendered HTML card fragments (GM only; no DB required).
+/// as pre-rendered HTML card fragments (admin only; no DB required).
 pub async fn device_messages_route(
-    _user: GmUser,
+    _user: AdminUser,
     State(state): State<ServerState>,
     Query(params): Query<DeviceMessagesQuery>,
 ) -> Result<Html<String>, Error> {
@@ -1785,9 +1785,9 @@ struct MqttDevicesPage {
     nav_links: Arc<[NavLink]>,
 }
 
-/// GET `/mqtt/devices` — MQTT device inventory table (GM only).
+/// GET `/mqtt/devices` — MQTT device inventory table (admin only).
 pub async fn mqtt_devices_route(
-    user: GmUser,
+    user: AdminUser,
     State(state): State<ServerState>,
 ) -> Result<Html<String>, Error> {
     let auth = state.auth_state.as_ref().ok_or(Error::MqttNotConfigured)?;

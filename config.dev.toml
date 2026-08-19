@@ -14,7 +14,7 @@ rp_id = "dev.green.chrash.net"
 rp_origin = "https://dev.green.chrash.net"
 # Placeholder — real URL is supplied at runtime via GREEN_DB_URL (set in secrets.toml).
 db_url = "postgres://green:placeholder@localhost/green"
-gm_users = ["chrash"]
+admin_users = ["chrash"]
 ntfy_url = "http://localhost:8083/green-recovery"
 
 [mqtt]

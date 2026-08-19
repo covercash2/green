@@ -90,7 +90,7 @@ pub enum Route {
     #[serde(rename = "/healthcheck")]
     #[strum(serialize = "/healthcheck")]
     HealthCheck,
-    /// Electrical breaker-box panel (GM only).
+    /// Electrical breaker-box panel (admin only).
     #[serde(rename = "/breaker")]
     #[strum(serialize = "/breaker")]
     BreakerBox,
@@ -105,7 +105,7 @@ pub enum Route {
     #[strum(serialize = "/qr")]
     QrPage,
 
-    /// Tailscale peer list (GM only).
+    /// Tailscale peer list (admin only).
     #[serde(rename = "/tailscale")]
     #[strum(serialize = "/tailscale")]
     Tailscale,
@@ -115,7 +115,7 @@ pub enum Route {
     #[strum(serialize = "/notes")]
     Notes,
 
-    /// Trigger a background rescan of the notes vault (GM only).
+    /// Trigger a background rescan of the notes vault (admin only).
     #[serde(rename = "/api/notes/refresh")]
     #[strum(serialize = "/api/notes/refresh")]
     NotesRefresh,
@@ -130,27 +130,27 @@ pub enum Route {
     #[strum(serialize = "/auth/register")]
     AuthRegister,
 
-    /// MQTT live-feed page (GM only).
+    /// MQTT live-feed page (admin only).
     #[serde(rename = "/mqtt")]
     #[strum(serialize = "/mqtt")]
     Mqtt,
 
-    /// SSE stream of live MQTT messages (GM only).
+    /// SSE stream of live MQTT messages (admin only).
     #[serde(rename = "/api/mqtt/stream")]
     #[strum(serialize = "/api/mqtt/stream")]
     MqttStream,
 
-    /// Recent ring-buffer messages for a single device (GM only; used by devices panel).
+    /// Recent ring-buffer messages for a single device (admin only; used by devices panel).
     #[serde(rename = "/api/mqtt/device-messages")]
     #[strum(serialize = "/api/mqtt/device-messages")]
     MqttDeviceMessages,
 
-    /// Publish an outbound message to the broker (GM only).
+    /// Publish an outbound message to the broker (admin only).
     #[serde(rename = "/api/mqtt/publish")]
     #[strum(serialize = "/api/mqtt/publish")]
     MqttPublish,
 
-    /// MQTT device inventory page (GM only).
+    /// MQTT device inventory page (admin only).
     #[serde(rename = "/mqtt/devices")]
     #[strum(serialize = "/mqtt/devices")]
     MqttDevices,
@@ -160,32 +160,32 @@ pub enum Route {
     #[strum(serialize = "/metrics")]
     Metrics,
 
-    /// App trace log viewer page (GM only; dev only).
+    /// App trace log viewer page (admin only; dev only).
     #[serde(rename = "/logs/app")]
     #[strum(serialize = "/logs/app")]
     LogsApp,
 
-    /// Error / build log viewer page (GM only; dev only).
+    /// Error / build log viewer page (admin only; dev only).
     #[serde(rename = "/logs/errors")]
     #[strum(serialize = "/logs/errors")]
     LogsErrors,
 
-    /// SSE stream of app trace log lines (GM only; dev only).
+    /// SSE stream of app trace log lines (admin only; dev only).
     #[serde(rename = "/api/logs/app/stream")]
     #[strum(serialize = "/api/logs/app/stream")]
     LogsAppStream,
 
-    /// SSE stream of error log lines (GM only; dev only).
+    /// SSE stream of error log lines (admin only; dev only).
     #[serde(rename = "/api/logs/errors/stream")]
     #[strum(serialize = "/api/logs/errors/stream")]
     LogsErrorsStream,
 
-    /// Systemd service status dashboard (GM only).
+    /// Systemd service status dashboard (admin only).
     #[serde(rename = "/services")]
     #[strum(serialize = "/services")]
     Services,
 
-    /// JSON API returning current status of all monitored units (GM only).
+    /// JSON API returning current status of all monitored units (admin only).
     #[serde(rename = "/api/services")]
     #[strum(serialize = "/api/services")]
     ServicesApi,
@@ -228,7 +228,7 @@ pub struct ServerState {
     pub systemd_config: Option<services::SystemdConfig>,
     /// Site-wide navigation links, built at startup from enabled features.
     pub nav_links: Arc<[NavLink]>,
-    /// Peer Green instances (GM-only nav links, for multi-machine navigation).
+    /// Peer Green instances (admin-only nav links, for multi-machine navigation).
     pub peers: Arc<[PeerInfo]>,
     /// Shared HTTP client used for outbound requests (peer service proxying,
     /// ntfy notifications handled separately in auth).
@@ -297,44 +297,44 @@ impl ServerState {
             let mut links = vec![NavLink {
                 name: "home".into(),
                 href: "/".into(),
-                is_gm: false,
+                is_admin: false,
             }];
             if has_mqtt {
                 links.push(NavLink {
                     name: "mqtt".into(),
                     href: "/mqtt".into(),
-                    is_gm: false,
+                    is_admin: false,
                 });
             }
             if has_notes {
                 links.push(NavLink {
                     name: "notes".into(),
                     href: "/notes".into(),
-                    is_gm: false,
+                    is_admin: false,
                 });
             }
             if has_recipes {
                 links.push(NavLink {
                     name: "recipes".into(),
                     href: "/recipes".into(),
-                    is_gm: false,
+                    is_admin: false,
                 });
             }
             links.push(NavLink {
                 name: "breaker".into(),
                 href: "/breaker".into(),
-                is_gm: false,
+                is_admin: false,
             });
             links.push(NavLink {
                 name: "tailscale".into(),
                 href: "/tailscale".into(),
-                is_gm: false,
+                is_admin: false,
             });
             for peer in &config.peers {
                 links.push(NavLink {
                     name: peer.name.clone(),
                     href: peer.url.clone(),
-                    is_gm: true,
+                    is_admin: true,
                 });
             }
             links.into()
@@ -535,7 +535,7 @@ pub struct Cli {
     pub config_path: PathBuf,
 }
 
-/// A remote Green instance that this instance links to in the GM nav and may
+/// A remote Green instance that this instance links to in the admin nav and may
 /// proxy service status from.
 ///
 /// # Config example
@@ -620,7 +620,7 @@ pub struct Config {
     /// Optional URL for a logo image shown on the index page.
     #[serde(default)]
     pub logo_url: Option<String>,
-    /// Remote Green instances linked in the GM nav drawer.
+    /// Remote Green instances linked in the admin nav drawer.
     /// When a peer has `api_key` set, this instance will proxy its
     /// `/api/services` response onto the home page.
     #[serde(default)]
@@ -629,7 +629,7 @@ pub struct Config {
     /// when calling *this* machine's `/api/services` endpoint.
     ///
     /// If absent, peer-to-peer service proxying is disabled for *inbound*
-    /// requests (the endpoint still works for GM browser sessions).
+    /// requests (the endpoint still works for admin browser sessions).
     ///
     /// Keep this value out of config.toml in the Nix store — inject it via the
     /// `GREEN_PEER_API_KEY` environment variable (see [`Config::load`]).

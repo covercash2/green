@@ -357,10 +357,10 @@
             peers = mkOption {
               default = [];
               description = ''
-                Remote Green instances linked in the GM nav drawer.
+                Remote Green instances linked in the admin nav drawer.
 
                 When a peer has apiKey set, this machine will proxy that peer's
-                /api/services response onto the home page (GM-only). The peer must
+                /api/services response onto the home page (admin-only). The peer must
                 have peerApiKey set to the same value in its own configuration.
 
                 Store the actual key value in sops-nix and inject it at runtime via
@@ -402,7 +402,7 @@
                 when calling this machine's /api/services endpoint.
 
                 If null, inbound peer service requests are rejected (the endpoint still
-                works for GM browser sessions via cookie auth).
+                works for admin browser sessions via cookie auth).
 
                 Do not set this to a real secret here — inject it at runtime via the
                 GREEN_PEER_API_KEY environment variable using a sops-nix EnvironmentFile
@@ -509,11 +509,11 @@
                     example = "postgres://green:password@localhost/green";
                     description = "PostgreSQL connection URL for user and passkey storage";
                   };
-                  gmUsers = mkOption {
+                  adminUsers = mkOption {
                     type = types.listOf types.str;
                     default = [];
                     example = [ "alice" ];
-                    description = "Usernames that receive the GM role";
+                    description = "Usernames that receive the admin role";
                   };
                   ntfyUrl = mkOption {
                     type = types.nullOr types.str;
@@ -583,7 +583,7 @@
               rp_id = "${cfg.auth.rpId}"
               rp_origin = "${cfg.auth.rpOrigin}"
               db_url = "${cfg.auth.dbUrl}"
-              gm_users = [${lib.concatStringsSep ", " (map (u: "\"${u}\"") cfg.auth.gmUsers)}]
+              admin_users = [${lib.concatStringsSep ", " (map (u: "\"${u}\"") cfg.auth.adminUsers)}]
               ${lib.optionalString (cfg.auth.ntfyUrl != null) "ntfy_url = \"${cfg.auth.ntfyUrl}\""}
               ''}
 

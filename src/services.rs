@@ -13,7 +13,7 @@
 //! merges the results into the home page under a labelled group.
 //!
 //! ```text
-//! Browser (GM user on A)
+//! Browser (admin user on A)
 //!     │
 //!     │  GET /  (session cookie for A)
 //!     ▼
@@ -33,19 +33,19 @@
 //!
 //! Two authentication paths reach `/api/services`:
 //!
-//! 1. **Browser (GM session cookie)** — the existing `GmUser` extractor; only
+//! 1. **Browser (admin session cookie)** — the existing `AdminUser` extractor; only
 //!    for direct browser access.
 //!
 //! 2. **Peer server (API key)** — machine A sends `X-Green-Api-Key: <token>` in
 //!    an HTTPS request.  Machine B validates the token against its own
 //!    `peer_api_key` config value.
 //!
-//! The two-step check is implemented in the [`GmOrPeer`] extractor and applied
-//! only to `services_api_route`.  All other routes continue to use `GmUser`.
+//! The two-step check is implemented in the [`AdminOrPeer`] extractor and applied
+//! only to `services_api_route`.  All other routes continue to use `AdminUser`.
 //!
 //! ### Why a custom header rather than `Authorization`?
 //!
-//! The standard `Authorization` header (RFC 7235) would work, but `GmUser`
+//! The standard `Authorization` header (RFC 7235) would work, but `AdminUser`
 //! reads cookies rather than `Authorization`, so using a distinct header makes
 //! the two auth paths unambiguous and avoids coupling the cookie and API-key
 //! paths together.  See:
@@ -91,7 +91,7 @@ use std::sync::Arc;
 
 use crate::{
     PeerInfo, ServerState, VERSION,
-    auth::{AuthUser, AuthUserInfo, GmUser},
+    auth::{AdminUser, AuthUser, AuthUserInfo},
     error::Error,
     index::NavLink,
 };
@@ -217,7 +217,7 @@ pub struct ServiceStatus {
 }
 
 /// Service statuses aggregated from one peer instance, shown as a labelled
-/// group below the local services on the home page (GM view only).
+/// group below the local services on the home page (admin view only).
 ///
 /// `online: false` means the peer was unreachable, timed out, or returned an
 /// error; in that case `services` is empty and the template shows an "offline"
@@ -237,19 +237,19 @@ pub struct PeerServiceGroup {
 /// Axum extractor that permits access to `/api/services` via **either** of two
 /// authentication paths:
 ///
-/// 1. **GM session cookie** — the standard `GmUser` path; used by the browser.
+/// 1. **admin session cookie** — the standard `AdminUser` path; used by the browser.
 /// 2. **Peer API key** — the `X-Green-Api-Key` header sent by another Green
 ///    instance when it proxies this machine's service list.
 ///
 /// The header is checked first.  If it is present but invalid the request is
 /// rejected with 403 immediately (no cookie fallback).  If the header is absent
-/// the extractor falls through to the normal `GmUser` cookie check.
+/// the extractor falls through to the normal `AdminUser` cookie check.
 ///
 /// For background on axum extractors, see:
 /// <https://docs.rs/axum/latest/axum/extract/trait.FromRequestParts.html>
-pub struct GmOrPeer;
+pub struct AdminOrPeer;
 
-impl FromRequestParts<ServerState> for GmOrPeer {
+impl FromRequestParts<ServerState> for AdminOrPeer {
     type Rejection = Response;
 
     async fn from_request_parts(
@@ -259,15 +259,15 @@ impl FromRequestParts<ServerState> for GmOrPeer {
         // ── Path 1: peer server-to-server (X-Green-Api-Key) ──────────────────
         if let Some(key_hdr) = parts.headers.get(PEER_AUTH_HEADER) {
             return match (state.peer_api_key.as_deref(), key_hdr.to_str().ok()) {
-                (Some(expected), Some(provided)) if expected == provided => Ok(GmOrPeer),
+                (Some(expected), Some(provided)) if expected == provided => Ok(AdminOrPeer),
                 _ => Err(StatusCode::FORBIDDEN.into_response()),
             };
         }
 
-        // ── Path 2: browser GM session cookie ────────────────────────────────
-        GmUser::from_request_parts(parts, state)
+        // ── Path 2: browser admin session cookie ────────────────────────────────
+        AdminUser::from_request_parts(parts, state)
             .await
-            .map(|_| GmOrPeer)
+            .map(|_| AdminOrPeer)
             .map_err(IntoResponse::into_response)
     }
 }
@@ -479,9 +479,9 @@ fn auth_user_info(user: &AuthUser) -> AuthUserInfo {
     }
 }
 
-/// `GET /services` — service status dashboard (GM only).
+/// `GET /services` — service status dashboard (admin only).
 pub async fn services_route(
-    GmUser(user): GmUser,
+    AdminUser(user): AdminUser,
     State(state): State<ServerState>,
 ) -> Result<Html<String>, Error> {
     let config = state.systemd_config.as_ref().ok_or(Error::NotFound)?;
@@ -497,14 +497,14 @@ pub async fn services_route(
 
 /// `GET /api/services` — JSON list of current service statuses.
 ///
-/// Accessible by either a GM browser session (cookie) or a peer Green instance
+/// Accessible by either a admin browser session (cookie) or a peer Green instance
 /// (via the [`PEER_AUTH_HEADER`] header + a matching [`ServerState::peer_api_key`]).
 ///
 /// This is the endpoint that other Green instances call when aggregating remote
-/// service status on their own home page.  The [`GmOrPeer`] extractor handles
+/// service status on their own home page.  The [`AdminOrPeer`] extractor handles
 /// both authentication paths.
 pub async fn services_api_route(
-    _caller: GmOrPeer,
+    _caller: AdminOrPeer,
     State(state): State<ServerState>,
 ) -> Result<Json<Vec<ServiceStatus>>, Error> {
     let config = state.systemd_config.as_ref().ok_or(Error::NotFound)?;
@@ -622,10 +622,10 @@ ExecMainStartTimestamp=\n";
         assert_eq!(s.pid, Some(42));
     }
 
-    // ── GmOrPeer extractor ───────────────────────────────────────────────────
+    // ── AdminOrPeer extractor ───────────────────────────────────────────────────
 
     #[tokio::test]
-    async fn gm_or_peer_accepts_valid_api_key() {
+    async fn admin_or_peer_accepts_valid_api_key() {
         use axum::{Router, body::Body, http::Request, routing::get};
         use tower::ServiceExt;
 
@@ -642,13 +642,13 @@ ExecMainStartTimestamp=\n";
             .body(Body::empty())
             .unwrap();
         let resp = app.oneshot(req).await.unwrap();
-        // Valid key passes GmOrPeer; systemd_config is None → 404, not 403.
+        // Valid key passes AdminOrPeer; systemd_config is None → 404, not 403.
         assert_ne!(resp.status(), StatusCode::FORBIDDEN);
         assert_ne!(resp.status(), StatusCode::UNAUTHORIZED);
     }
 
     #[tokio::test]
-    async fn gm_or_peer_rejects_wrong_api_key() {
+    async fn admin_or_peer_rejects_wrong_api_key() {
         use axum::{Router, body::Body, http::Request, routing::get};
         use tower::ServiceExt;
 
@@ -669,7 +669,7 @@ ExecMainStartTimestamp=\n";
     }
 
     #[tokio::test]
-    async fn gm_or_peer_requires_session_when_no_header() {
+    async fn admin_or_peer_requires_session_when_no_header() {
         use axum::{Router, body::Body, http::Request, routing::get};
         use tower::ServiceExt;
 
@@ -680,13 +680,13 @@ ExecMainStartTimestamp=\n";
             .route("/api/services", get(services_api_route))
             .with_state(state);
 
-        // No X-Green-Api-Key header and no GM session cookie.
+        // No X-Green-Api-Key header and no admin session cookie.
         let req = Request::builder()
             .uri("/api/services")
             .body(Body::empty())
             .unwrap();
         let resp = app.oneshot(req).await.unwrap();
-        // Without a header the extractor falls through to GmUser which
+        // Without a header the extractor falls through to AdminUser which
         // rejects unauthenticated requests (redirect to login or 4xx).
         let status = resp.status().as_u16();
         assert!(

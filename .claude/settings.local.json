@@ -3,7 +3,12 @@
     "allow": [
       "Bash(jj file *)",
       "Bash(cargo fmt *)",
-      "Bash(jj diff *)"
+      "Bash(jj diff *)",
+      "Bash(cargo test *)",
+      "Bash(grep *)",
+      "Bash(rustfmt --check --edition 2024 src/auth.rs src/index.rs src/main.rs src/breaker.rs src/logs.rs src/mqtt.rs src/tailscale.rs src/services.rs)",
+      "Bash(cargo check *)",
+      "Bash(cargo clippy *)"
     ]
   }
 }

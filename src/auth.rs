@@ -34,12 +34,10 @@ const CHALLENGE_TTL: Duration = Duration::from_secs(5 * 60);
 /// How long a one-time recovery code remains valid.
 const OTC_TTL: Duration = Duration::from_secs(10 * 60);
 
-// ─── Public config types ───────────────────────────────────────────────────
-
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Role {
-    Gm,
-    Player,
+    Admin,
+    Guest,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -48,7 +46,7 @@ pub struct AuthConfig {
     pub rp_origin: String,
     pub db_url: String,
     #[serde(default)]
-    pub gm_users: Vec<String>,
+    pub admin_users: Vec<String>,
     #[serde(default)]
     pub ntfy_url: Option<String>,
 }
@@ -73,8 +71,8 @@ pub struct AuthUserInfo {
 }
 
 impl AuthUserInfo {
-    pub fn is_gm(&self) -> bool {
-        self.role == Role::Gm
+    pub fn is_admin(&self) -> bool {
+        self.role == Role::Admin
     }
 }
 
@@ -132,10 +130,10 @@ impl AuthState {
     }
 
     fn role_for(&self, username: &str) -> Role {
-        if self.config.gm_users.iter().any(|u| u == username) {
-            Role::Gm
+        if self.config.admin_users.iter().any(|u| u == username) {
+            Role::Admin
         } else {
-            Role::Player
+            Role::Guest
         }
     }
 
@@ -173,8 +171,8 @@ impl AuthState {
         passkeys: &[Passkey],
     ) -> Result<(), Error> {
         let role_str = match role {
-            Role::Gm => "Gm",
-            Role::Player => "Player",
+            Role::Admin => "Admin",
+            Role::Guest => "Guest",
         };
         let credentials = serde_json::to_value(passkeys)
             .map_err(|e| Error::Database(format!("failed to serialize passkeys: {e}")))?;
@@ -341,12 +339,12 @@ impl FromRequestParts<ServerState> for AuthUser {
     }
 }
 
-/// Resolves only if the authenticated user has the GM role.
+/// Resolves only if the authenticated user has the Admin role.
 /// Unauthenticated requests are redirected to `/auth/login` (same as `AuthUser`).
-/// Authenticated non-GM requests get a 403.
-pub struct GmUser(pub AuthUser);
+/// Authenticated non-admin requests get a 403.
+pub struct AdminUser(pub AuthUser);
 
-impl FromRequestParts<ServerState> for GmUser {
+impl FromRequestParts<ServerState> for AdminUser {
     type Rejection = Response;
 
     async fn from_request_parts(
@@ -354,10 +352,10 @@ impl FromRequestParts<ServerState> for GmUser {
         state: &ServerState,
     ) -> Result<Self, Self::Rejection> {
         let user = AuthUser::from_request_parts(parts, state).await?; // propagates the /auth/login redirect if unauthenticated
-        if user.role != Role::Gm {
+        if user.role != Role::Admin {
             return Err(Error::Forbidden.into_response());
         }
-        Ok(GmUser(user))
+        Ok(AdminUser(user))
     }
 }
 
@@ -938,7 +936,7 @@ mod tests {
             rp_id: "localhost".to_string(),
             rp_origin: "http://localhost".to_string(),
             db_url: "postgres://localhost/nonexistent".to_string(),
-            gm_users: vec!["gm".to_string()],
+            admin_users: vec!["admin".to_string()],
             ntfy_url: None,
         };
         let auth_state = AuthState::new_for_testing(auth_config).unwrap();
@@ -996,23 +994,23 @@ mod tests {
         token
     }
 
-    async fn gm_only(_user: GmUser) -> Html<&'static str> {
+    async fn admin_only(_user: AdminUser) -> Html<&'static str> {
         Html("ok")
     }
 
-    fn gm_router(state: ServerState) -> axum::Router {
+    fn admin_router(state: ServerState) -> axum::Router {
         axum::Router::new()
-            .route("/gm-only", get(gm_only))
+            .route("/admin-only", get(admin_only))
             .with_state(state)
     }
 
     #[tokio::test]
-    async fn gm_user_no_session_redirects_to_login() {
+    async fn admin_user_no_session_redirects_to_login() {
         let state = state_with_auth().await;
-        let res = gm_router(state)
+        let res = admin_router(state)
             .oneshot(
                 Request::builder()
-                    .uri("/gm-only")
+                    .uri("/admin-only")
                     .body(Body::empty())
                     .unwrap(),
             )
@@ -1021,17 +1019,17 @@ mod tests {
         assert_eq!(res.status(), StatusCode::SEE_OTHER);
         assert_eq!(
             res.headers().get("location").unwrap(),
-            "/auth/login?next=%2Fgm-only"
+            "/auth/login?next=%2Fadmin-only"
         );
     }
 
     #[tokio::test]
-    async fn gm_user_no_session_preserves_query_string_in_next() {
+    async fn admin_user_no_session_preserves_query_string_in_next() {
         let state = state_with_auth().await;
-        let res = gm_router(state)
+        let res = admin_router(state)
             .oneshot(
                 Request::builder()
-                    .uri("/gm-only?foo=bar")
+                    .uri("/admin-only?foo=bar")
                     .body(Body::empty())
                     .unwrap(),
             )
@@ -1040,16 +1038,16 @@ mod tests {
         assert_eq!(res.status(), StatusCode::SEE_OTHER);
         let location = res.headers().get("location").unwrap().to_str().unwrap();
         // The full path+query must be encoded so `&` can't corrupt the outer URL.
-        assert_eq!(location, "/auth/login?next=%2Fgm-only%3Ffoo%3Dbar");
+        assert_eq!(location, "/auth/login?next=%2Fadmin-only%3Ffoo%3Dbar");
     }
 
     #[tokio::test]
-    async fn gm_user_no_session_encodes_ampersand_in_next() {
+    async fn admin_user_no_session_encodes_ampersand_in_next() {
         let state = state_with_auth().await;
-        let res = gm_router(state)
+        let res = admin_router(state)
             .oneshot(
                 Request::builder()
-                    .uri("/gm-only?a=1&b=2")
+                    .uri("/admin-only?a=1&b=2")
                     .body(Body::empty())
                     .unwrap(),
             )
@@ -1058,17 +1056,17 @@ mod tests {
         assert_eq!(res.status(), StatusCode::SEE_OTHER);
         let location = res.headers().get("location").unwrap().to_str().unwrap();
         // Without encoding, `&b=2` would be parsed as a second query param, not part of `next`.
-        assert_eq!(location, "/auth/login?next=%2Fgm-only%3Fa%3D1%26b%3D2");
+        assert_eq!(location, "/auth/login?next=%2Fadmin-only%3Fa%3D1%26b%3D2");
     }
 
     #[tokio::test]
-    async fn gm_user_player_session_returns_403() {
+    async fn admin_user_guest_session_returns_403() {
         let state = state_with_auth().await;
-        let token = insert_session(&state, "alice", Role::Player).await;
-        let res = gm_router(state)
+        let token = insert_session(&state, "alice", Role::Guest).await;
+        let res = admin_router(state)
             .oneshot(
                 Request::builder()
-                    .uri("/gm-only")
+                    .uri("/admin-only")
                     .header("cookie", format!("green_session={token}"))
                     .body(Body::empty())
                     .unwrap(),
@@ -1079,13 +1077,13 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn gm_user_gm_session_succeeds() {
+    async fn admin_user_admin_session_succeeds() {
         let state = state_with_auth().await;
-        let token = insert_session(&state, "gm", Role::Gm).await;
-        let res = gm_router(state)
+        let token = insert_session(&state, "admin", Role::Admin).await;
+        let res = admin_router(state)
             .oneshot(
                 Request::builder()
-                    .uri("/gm-only")
+                    .uri("/admin-only")
                     .header("cookie", format!("green_session={token}"))
                     .body(Body::empty())
                     .unwrap(),

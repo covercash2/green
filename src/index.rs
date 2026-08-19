@@ -15,8 +15,8 @@ use crate::{
 pub struct NavLink {
     pub name: String,
     pub href: String,
-    /// When true, the link is only rendered for GM users.
-    pub is_gm: bool,
+    /// When true, the link is only rendered for admin users.
+    pub is_admin: bool,
 }
 
 #[derive(Debug, Clone, bon::Builder)]
@@ -42,8 +42,8 @@ pub struct Index {
     pub routes: Vec<IndexEntry>,
     /// Local systemd service statuses, queried per-request.
     pub services: Vec<ServiceStatus>,
-    /// Remote peer service groups, fetched in parallel per-request (GM only).
-    /// Empty for non-GM users — peers are only shown to GMs.
+    /// Remote peer service groups, fetched in parallel per-request (admin only).
+    /// Empty for non-admin users — peers are only shown to admins.
     pub peer_groups: Vec<PeerServiceGroup>,
     pub version: &'static str,
     pub auth_user: Option<AuthUserInfo>,
@@ -143,9 +143,9 @@ pub async fn index(
         Vec::new()
     };
 
-    // Peer services — fetched in parallel, but only for GM users.
-    // Non-GMs never see peer data; skip the network calls entirely so a GM
-    // elsewhere is not waiting on peers that the current user wouldn't see.
+    // Peer services — fetched in parallel, but only for admin users.
+    // Non-admins never see peer data; skip the network calls entirely so an
+    // admin elsewhere is not waiting on peers that the current user wouldn't see.
     //
     // Only peers with `api_key` configured are contacted.  Peers without a key
     // appear in the nav drawer (Stage 2) but not in the services section.
@@ -155,7 +155,7 @@ pub async fn index(
     // services.rs), so the overall latency is bounded by the slowest peer, not
     // the sum of all peers.
     // See: https://docs.rs/futures/latest/futures/future/fn.join_all.html
-    let peer_groups = if auth_user.as_ref().map(|u| u.is_gm()).unwrap_or(false) {
+    let peer_groups = if auth_user.as_ref().map(|u| u.is_admin()).unwrap_or(false) {
         let peers_with_keys: Vec<_> = state.peers.iter().filter(|p| p.api_key.is_some()).collect();
         futures::future::join_all(
             peers_with_keys

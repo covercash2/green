@@ -37,8 +37,8 @@ pub struct Recipe {
     pub cook_time: Option<String>,
     /// Player-visible HTML: secret blocks replaced with placeholder.
     pub html: RenderedHtml,
-    /// GM-visible HTML: all blocks rendered without redaction.
-    pub html_gm: RenderedHtml,
+    /// Admin-visible HTML: all blocks rendered without redaction.
+    pub html_admin: RenderedHtml,
     /// `true` if any secret blocks were found.
     pub has_secrets: bool,
 }
@@ -140,7 +140,7 @@ impl RecipeStore {
             let is_whole_secret = fm.tags.iter().any(|t| t == "secret");
             // Render markdown first, then resolve wiki links on the HTML output so that
             // the generated `<a>` tags are not re-escaped by pulldown-cmark.
-            let (html, html_gm, has_secrets) = if is_whole_secret {
+            let (html, html_admin, has_secrets) = if is_whole_secret {
                 let player = RenderedHtml::from_placeholder(SECRET_PLACEHOLDER);
                 let gm_rendered = render_markdown(body);
                 let gm = RenderedHtml::from_html(obsidian::resolve_wiki_links(
@@ -167,7 +167,7 @@ impl RecipeStore {
                 prep_time: fm.prep_time,
                 cook_time: fm.cook_time,
                 html,
-                html_gm,
+                html_admin,
                 has_secrets,
             };
 
@@ -265,12 +265,12 @@ pub async fn recipes_detail_route(
 ) -> Result<Html<String>, Error> {
     let store: &Arc<RecipeStore> = state.recipes_store.as_ref().ok_or(Error::NotFound)?;
     let recipe = store.get(&slug).ok_or(Error::NotFound)?;
-    let is_gm = auth_user
+    let is_admin = auth_user
         .as_ref()
-        .map(|u| u.role == Role::Gm)
+        .map(|u| u.role == Role::Admin)
         .unwrap_or(false);
-    let content = if is_gm {
-        recipe.html_gm.as_str().to_owned()
+    let content = if is_admin {
+        recipe.html_admin.as_str().to_owned()
     } else {
         recipe.html.as_str().to_owned()
     };

@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use crate::{
     ServerState,
-    auth::{AuthUserInfo, GmUser},
+    auth::{AdminUser, AuthUserInfo},
     breaker_detail::{BreakerDetailStore, BreakerSlot},
     error::Error,
     index::NavLink,
@@ -136,7 +136,7 @@ fn render_from_store(store: &dyn BreakerDetailStore) -> String {
 }
 
 pub async fn breaker_route(
-    user: GmUser,
+    user: AdminUser,
     State(state): State<ServerState>,
 ) -> Result<Html<String>, Error> {
     let auth_user = Some(AuthUserInfo {
@@ -159,7 +159,7 @@ pub struct BreakerDetailTemplate<'a> {
 }
 
 pub async fn breaker_detail_route(
-    _user: GmUser,
+    _user: AdminUser,
     Path(key): Path<String>,
     State(state): State<ServerState>,
 ) -> Result<Html<String>, Error> {
