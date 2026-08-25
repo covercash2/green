@@ -89,6 +89,21 @@ pub enum Error {
 
     #[error("logs not configured")]
     LogsNotConfigured,
+
+    #[error("systemd monitoring not configured")]
+    SystemdNotConfigured,
+
+    #[error("recipe vault not configured")]
+    RecipesNotConfigured,
+
+    #[error("notes vault not configured")]
+    NotesNotConfigured,
+
+    #[error("notes vault is still loading")]
+    NotesVaultLoading,
+
+    #[error("auth not configured")]
+    AuthNotConfigured,
 }
 
 impl IntoResponse for Error {
@@ -103,7 +118,13 @@ impl IntoResponse for Error {
             Error::TailscaleConnect { .. }
             | Error::TailscaleParse(_)
             | Error::TailscaleDeserialize { .. } => StatusCode::BAD_GATEWAY,
-            Error::MqttNotConfigured | Error::LogsNotConfigured => StatusCode::NOT_FOUND,
+            Error::MqttNotConfigured
+            | Error::LogsNotConfigured
+            | Error::SystemdNotConfigured
+            | Error::RecipesNotConfigured
+            | Error::NotesNotConfigured
+            | Error::NotesVaultLoading
+            | Error::AuthNotConfigured => StatusCode::NOT_FOUND,
             Error::EnvLevel { .. }
             | Error::HttpClientBuild(_)
             | Error::TemplateRender { .. }
@@ -154,6 +175,36 @@ mod tests {
     #[test]
     fn mqtt_not_configured_is_404() {
         assert_eq!(status(Error::MqttNotConfigured), StatusCode::NOT_FOUND);
+    }
+
+    #[test]
+    fn logs_not_configured_is_404() {
+        assert_eq!(status(Error::LogsNotConfigured), StatusCode::NOT_FOUND);
+    }
+
+    #[test]
+    fn systemd_not_configured_is_404() {
+        assert_eq!(status(Error::SystemdNotConfigured), StatusCode::NOT_FOUND);
+    }
+
+    #[test]
+    fn recipes_not_configured_is_404() {
+        assert_eq!(status(Error::RecipesNotConfigured), StatusCode::NOT_FOUND);
+    }
+
+    #[test]
+    fn notes_not_configured_is_404() {
+        assert_eq!(status(Error::NotesNotConfigured), StatusCode::NOT_FOUND);
+    }
+
+    #[test]
+    fn notes_vault_loading_is_404() {
+        assert_eq!(status(Error::NotesVaultLoading), StatusCode::NOT_FOUND);
+    }
+
+    #[test]
+    fn auth_not_configured_is_404() {
+        assert_eq!(status(Error::AuthNotConfigured), StatusCode::NOT_FOUND);
     }
 
     #[test]

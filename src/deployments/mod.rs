@@ -10,9 +10,11 @@
 
 use std::path::{Path, PathBuf};
 
+use std::sync::Arc;
+
 use axum::{
     body::Bytes,
-    extract::State,
+    extract::{FromRef, State},
     http::{HeaderMap, StatusCode},
 };
 use hmac::{Hmac, Mac};
@@ -24,7 +26,28 @@ use crate::{
         github::{Push, WebhookPayload},
         nix::SystemFlake,
     },
+    ultron::Ultron,
 };
+
+/// GitHub webhook secret for verifying `X-Hub-Signature-256`, wrapped so it
+/// doesn't collide with other `Option<Arc<str>>` fields (e.g. the peer API
+/// key) when resolved via [`FromRef`].
+#[derive(Clone)]
+pub(crate) struct WebhookSecret(Option<Arc<str>>);
+
+impl FromRef<ServerState> for WebhookSecret {
+    fn from_ref(state: &ServerState) -> Self {
+        WebhookSecret(state.webhook_secret.clone())
+    }
+}
+
+/// Resolve just the Ultron client out of `ServerState`, so `webhook` doesn't
+/// need to depend on the rest of the app's state.
+impl FromRef<ServerState> for Arc<Ultron> {
+    fn from_ref(state: &ServerState) -> Self {
+        state.ultron.clone()
+    }
+}
 
 mod github;
 mod nix;
@@ -165,11 +188,15 @@ fn verify_signature(
     let sig_header = headers
         .get("X-Hub-Signature-256")
         .and_then(|v| v.to_str().ok())
-        .ok_or((StatusCode::UNAUTHORIZED, "missing X-Hub-Signature-256 header"))?;
+        .ok_or((
+            StatusCode::UNAUTHORIZED,
+            "missing X-Hub-Signature-256 header",
+        ))?;
 
-    let sig_hex = sig_header
-        .strip_prefix("sha256=")
-        .ok_or((StatusCode::UNAUTHORIZED, "malformed X-Hub-Signature-256 header"))?;
+    let sig_hex = sig_header.strip_prefix("sha256=").ok_or((
+        StatusCode::UNAUTHORIZED,
+        "malformed X-Hub-Signature-256 header",
+    ))?;
 
     let expected = hex::decode(sig_hex)
         .map_err(|_| (StatusCode::UNAUTHORIZED, "invalid hex in signature header"))?;
@@ -182,15 +209,14 @@ fn verify_signature(
 }
 
 pub async fn webhook(
-    State(state): State<ServerState>,
+    State(WebhookSecret(webhook_secret)): State<WebhookSecret>,
+    State(ultron): State<Arc<Ultron>>,
     headers: HeaderMap,
     body: Bytes,
 ) -> Result<(), (StatusCode, &'static str)> {
-    if let Some(secret) = &state.webhook_secret {
+    if let Some(secret) = &webhook_secret {
         verify_signature(secret, &headers, &body)?;
     }
-
-    let ultron = state.ultron.clone();
 
     let payload: WebhookPayload = serde_json::from_slice(&body)
         .map_err(|_| (StatusCode::BAD_REQUEST, "invalid webhook payload"))?;
@@ -252,7 +278,12 @@ pub async fn webhook(
         .inspect_err(|error| {
             tracing::error!(%error, "failed to send deployment notification to Ultron");
         })
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "failed to send deployment notification to Ultron"))?;
+        .map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "failed to send deployment notification to Ultron",
+            )
+        })?;
 
     tracing::info!(message, "Received deployment webhook",);
 

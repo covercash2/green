@@ -8,7 +8,9 @@
       "Bash(grep *)",
       "Bash(rustfmt --check --edition 2024 src/auth.rs src/index.rs src/main.rs src/breaker.rs src/logs.rs src/mqtt.rs src/tailscale.rs src/services.rs)",
       "Bash(cargo check *)",
-      "Bash(cargo clippy *)"
+      "Bash(cargo clippy *)",
+      "Bash(jj log *)",
+      "Bash(jj st *)"
     ]
   }
 }

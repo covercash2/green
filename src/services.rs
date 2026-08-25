@@ -80,7 +80,7 @@
 use askama::Template;
 use axum::{
     Json,
-    extract::{FromRequestParts, State},
+    extract::{FromRef, FromRequestParts, State},
     http::{StatusCode, request::Parts},
     response::{Html, IntoResponse, Response},
 };
@@ -91,12 +91,10 @@ use std::sync::Arc;
 
 use crate::{
     PeerInfo, ServerState, VERSION,
-    auth::{AdminUser, AuthUser, AuthUserInfo},
+    auth::{AdminUser, AuthState, AuthUser, AuthUserInfo},
     error::Error,
     index::NavLink,
 };
-
-// ─── Peer auth header ─────────────────────────────────────────────────────────
 
 /// HTTP request header used for server-to-server authentication.
 ///
@@ -111,8 +109,6 @@ use crate::{
 /// X-Green-Api-Key: <token from [[peers]] api_key on A>
 /// ```
 pub const PEER_AUTH_HEADER: &str = "X-Green-Api-Key";
-
-// ─── Timeout ──────────────────────────────────────────────────────────────────
 
 /// Maximum time to wait for a peer's `/api/services` response.
 ///
@@ -145,6 +141,33 @@ pub struct UnitConfig {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct SystemdConfig {
     pub units: Vec<UnitConfig>,
+}
+
+/// Resolve just the systemd monitoring config out of `ServerState`, so the
+/// services routes don't need to depend on the rest of the app's state.
+impl FromRef<ServerState> for Option<SystemdConfig> {
+    fn from_ref(state: &ServerState) -> Self {
+        state.systemd_config.clone()
+    }
+}
+
+/// Resolves to the configured systemd monitoring config, or rejects with
+/// [`Error::SystemdNotConfigured`] — so the services routes don't each have to repeat
+/// the "is it configured?" check themselves.
+pub struct Systemd(pub SystemdConfig);
+
+impl<S> FromRequestParts<S> for Systemd
+where
+    S: Send + Sync,
+    Option<SystemdConfig>: FromRef<S>,
+{
+    type Rejection = Error;
+
+    async fn from_request_parts(_parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
+        Option::<SystemdConfig>::from_ref(state)
+            .map(Systemd)
+            .ok_or(Error::SystemdNotConfigured)
+    }
 }
 
 /// Derived health bucket — coarser than raw systemd states, used for CSS and
@@ -249,22 +272,37 @@ pub struct PeerServiceGroup {
 /// <https://docs.rs/axum/latest/axum/extract/trait.FromRequestParts.html>
 pub struct AdminOrPeer;
 
-impl FromRequestParts<ServerState> for AdminOrPeer {
+/// Pre-shared secret this machine accepts for inbound peer service requests,
+/// wrapped so it doesn't collide with other `Option<Arc<str>>` fields (e.g.
+/// the webhook secret) when resolved via [`FromRef`].
+#[derive(Clone)]
+pub struct PeerApiKey(pub Option<Arc<str>>);
+
+impl FromRef<ServerState> for PeerApiKey {
+    fn from_ref(state: &ServerState) -> Self {
+        PeerApiKey(state.peer_api_key.clone())
+    }
+}
+
+impl<S> FromRequestParts<S> for AdminOrPeer
+where
+    S: Send + Sync,
+    PeerApiKey: FromRef<S>,
+    Option<Arc<AuthState>>: FromRef<S>,
+{
     type Rejection = Response;
 
-    async fn from_request_parts(
-        parts: &mut Parts,
-        state: &ServerState,
-    ) -> Result<Self, Self::Rejection> {
-        // ── Path 1: peer server-to-server (X-Green-Api-Key) ──────────────────
+    async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
+        // Path 1: peer server-to-server (X-Green-Api-Key)
         if let Some(key_hdr) = parts.headers.get(PEER_AUTH_HEADER) {
-            return match (state.peer_api_key.as_deref(), key_hdr.to_str().ok()) {
+            let PeerApiKey(peer_api_key) = PeerApiKey::from_ref(state);
+            return match (peer_api_key.as_deref(), key_hdr.to_str().ok()) {
                 (Some(expected), Some(provided)) if expected == provided => Ok(AdminOrPeer),
                 _ => Err(StatusCode::FORBIDDEN.into_response()),
             };
         }
 
-        // ── Path 2: browser admin session cookie ────────────────────────────────
+        // Path 2: browser admin session cookie
         AdminUser::from_request_parts(parts, state)
             .await
             .map(|_| AdminOrPeer)
@@ -348,8 +386,6 @@ pub async fn fetch_peer_services(peer: &PeerInfo, client: &reqwest::Client) -> P
     }
 }
 
-// ─── Parsing ─────────────────────────────────────────────────────────────────
-
 /// Properties requested from `systemctl show`.
 const PROPERTIES: &str =
     "Description,LoadState,ActiveState,SubState,MainPID,ExecMainStartTimestamp";
@@ -421,8 +457,6 @@ fn derive_health(load_state: &str, active_state: &str, sub_state: &str) -> Healt
     }
 }
 
-// ─── systemctl query ─────────────────────────────────────────────────────────
-
 async fn query_unit(unit: &UnitConfig) -> ServiceStatus {
     let result = Command::new("systemctl")
         .args(["show", &unit.name, "--property", PROPERTIES, "--no-pager"])
@@ -459,8 +493,6 @@ pub async fn query_all(config: &SystemdConfig) -> Vec<ServiceStatus> {
     futures::future::join_all(config.units.iter().map(query_unit)).await
 }
 
-// ─── Templates ───────────────────────────────────────────────────────────────
-
 #[derive(Template)]
 #[template(path = "services.html")]
 struct ServicesPage {
@@ -469,8 +501,6 @@ struct ServicesPage {
     services: Vec<ServiceStatus>,
     nav_links: Arc<[NavLink]>,
 }
-
-// ─── Handlers ────────────────────────────────────────────────────────────────
 
 fn auth_user_info(user: &AuthUser) -> AuthUserInfo {
     AuthUserInfo {
@@ -482,15 +512,15 @@ fn auth_user_info(user: &AuthUser) -> AuthUserInfo {
 /// `GET /services` — service status dashboard (admin only).
 pub async fn services_route(
     AdminUser(user): AdminUser,
-    State(state): State<ServerState>,
+    Systemd(systemd_config): Systemd,
+    State(nav_links): State<Arc<[NavLink]>>,
 ) -> Result<Html<String>, Error> {
-    let config = state.systemd_config.as_ref().ok_or(Error::NotFound)?;
-    let services = query_all(config).await;
+    let services = query_all(&systemd_config).await;
     let page = ServicesPage {
         version: VERSION,
         auth_user: Some(auth_user_info(&user)),
         services,
-        nav_links: state.nav_links.clone(),
+        nav_links,
     };
     Ok(Html(page.render()?))
 }
@@ -505,13 +535,10 @@ pub async fn services_route(
 /// both authentication paths.
 pub async fn services_api_route(
     _caller: AdminOrPeer,
-    State(state): State<ServerState>,
+    Systemd(systemd_config): Systemd,
 ) -> Result<Json<Vec<ServiceStatus>>, Error> {
-    let config = state.systemd_config.as_ref().ok_or(Error::NotFound)?;
-    Ok(Json(query_all(config).await))
+    Ok(Json(query_all(&systemd_config).await))
 }
-
-// ─── Tests ───────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
 mod tests {
@@ -622,8 +649,6 @@ ExecMainStartTimestamp=\n";
         assert_eq!(s.pid, Some(42));
     }
 
-    // ── AdminOrPeer extractor ───────────────────────────────────────────────────
-
     #[tokio::test]
     async fn admin_or_peer_accepts_valid_api_key() {
         use axum::{Router, body::Body, http::Request, routing::get};
@@ -697,16 +722,12 @@ ExecMainStartTimestamp=\n";
         assert_ne!(resp.status(), StatusCode::OK);
     }
 
-    // ── fetch_peer_services ──────────────────────────────────────────────────
-
     /// Spawn a one-shot local HTTP server; return its base URL and a handle.
     async fn local_server(
         router: axum::Router,
     ) -> (String, tokio::task::JoinHandle<Result<(), std::io::Error>>) {
         use std::future::IntoFuture;
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
-            .await
-            .unwrap();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
         let handle = tokio::spawn(axum::serve(listener, router).into_future());
         (format!("http://{addr}"), handle)
@@ -755,8 +776,7 @@ ExecMainStartTimestamp=\n";
     async fn fetch_peer_services_non_2xx_returns_offline() {
         use axum::{Router, routing::get};
 
-        let app = Router::new()
-            .route("/api/services", get(|| async { StatusCode::FORBIDDEN }));
+        let app = Router::new().route("/api/services", get(|| async { StatusCode::FORBIDDEN }));
         let (base, _handle) = local_server(app).await;
 
         let peer = PeerInfo {

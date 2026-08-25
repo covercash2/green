@@ -130,8 +130,8 @@ pub(crate) fn render_note_body_revealed(text: &str) -> RenderedHtml {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::obsidian::{Frontmatter, parse_frontmatter};
+    use super::*;
     use std::collections::{HashMap, HashSet};
     use std::path::PathBuf;
 
@@ -248,10 +248,7 @@ mod tests {
         let mut live = HashSet::new();
         for &s in stems {
             let slug = Slug::from_stem(s);
-            let note_ref = obsidian::NoteRef::new(
-                PathBuf::from(format!("{s}.md")),
-                slug.clone(),
-            );
+            let note_ref = obsidian::NoteRef::new(PathBuf::from(format!("{s}.md")), slug.clone());
             idx.register(s, note_ref);
             let _ = live.insert(slug);
         }
@@ -348,7 +345,8 @@ mod tests {
     #[test]
     fn split_inline_tag_does_not_match_partial_word() {
         // `#secrets` and `#secretive` must NOT be treated as the `#secret` tag.
-        let parts = obsidian::split_on_secret_paragraphs("these are #secrets and #secretive things");
+        let parts =
+            obsidian::split_on_secret_paragraphs("these are #secrets and #secretive things");
         assert_eq!(parts.len(), 1);
         assert!(
             !parts[0].1,
