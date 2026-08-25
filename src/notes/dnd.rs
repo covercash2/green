@@ -85,8 +85,8 @@ fn natural_cmp(a: &str, b: &str) -> std::cmp::Ordering {
                 // Collect the full digit run from each side.
                 let a_start = ai_pos;
                 let b_start = bi_pos;
-                while let Some(_) = ai.next_if(|&(_, c)| c.is_ascii_digit()) {}
-                while let Some(_) = bi.next_if(|&(_, c)| c.is_ascii_digit()) {}
+                while ai.next_if(|&(_, c)| c.is_ascii_digit()).is_some() {}
+                while bi.next_if(|&(_, c)| c.is_ascii_digit()).is_some() {}
                 let a_end = ai.peek().map_or(a.len(), |&(i, _)| i);
                 let b_end = bi.peek().map_or(b.len(), |&(i, _)| i);
                 let an: u64 = a[a_start..a_end].parse().unwrap_or(0);
@@ -261,7 +261,7 @@ impl NoteVault {
     pub fn spawn_scan(&self) {
         let path = self.vault_path.clone();
         let store = Arc::clone(&self.store);
-        let _ = tokio::spawn(async move {
+        drop(tokio::spawn(async move {
             let result = tokio::task::spawn_blocking(move || NotesStore::scan(&path))
                 .await
                 .expect("notes scan task panicked");
@@ -279,7 +279,7 @@ impl NoteVault {
                     tracing::error!(error = %e, "notes vault scan failed");
                 }
             }
-        });
+        }));
     }
 
     /// Construct a `NoteVault` with a pre-loaded store. For use in tests only.

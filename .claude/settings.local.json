@@ -10,7 +10,12 @@
       "Bash(cargo check *)",
       "Bash(cargo clippy *)",
       "Bash(jj log *)",
-      "Bash(jj st *)"
+      "Bash(jj st *)",
+      "Bash(cargo build *)",
+      "Bash(cargo llvm-cov *)",
+      "Bash(just coverage *)",
+      "Bash(deno check *)",
+      "Bash(just js-test *)"
     ]
   }
 }

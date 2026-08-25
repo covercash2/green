@@ -677,7 +677,7 @@ impl Config {
         if let Ok(secret) = std::env::var("GREEN_WEBHOOK_SECRET") {
             config
                 .deployment
-                .get_or_insert_with(|| DeploymentConfig {
+                .get_or_insert(DeploymentConfig {
                     webhook_secret: None,
                 })
                 .webhook_secret = Some(secret);
