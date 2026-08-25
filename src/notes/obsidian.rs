@@ -383,13 +383,13 @@ pub fn resolve_link<'a>(link: &WikiLink, index: &'a VaultIndex) -> Option<&'a No
         return Some(r);
     }
     // Strip path prefix: [[Characters/Gillen]] → "Gillen"
-    if let Some(stem) = Path::new(&link.target).file_stem().and_then(|s| s.to_str()) {
-        if stem != link.target {
-            if let Some(r) = index.get(stem) {
-                return Some(r);
-            }
-            return index.get(Slug::from_stem(stem).as_str());
+    if let Some(stem) = Path::new(&link.target).file_stem().and_then(|s| s.to_str())
+        && stem != link.target
+    {
+        if let Some(r) = index.get(stem) {
+            return Some(r);
         }
+        return index.get(Slug::from_stem(stem).as_str());
     }
     None
 }

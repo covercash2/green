@@ -166,6 +166,34 @@ async fn fetch_status(socket_path: &Path) -> Result<TailscaleStatus, Error> {
         .map_err(|source| Error::TailscaleDeserialize { source })
 }
 
+pub async fn tailscale_route(
+    user: AdminUser,
+    State(socket): State<Arc<Path>>,
+    State(nav_links): State<Arc<[NavLink]>>,
+) -> Result<Html<String>, Error> {
+    let mut status = fetch_status(&socket).await?;
+
+    let mut peers: Vec<TailscalePeer> = status.peer.drain().map(|(_, v)| v).collect();
+    peers.sort_by(|a, b| a.host_name.cmp(&b.host_name));
+
+    let auth_user = Some(AuthUserInfo {
+        username: user.0.username.clone(),
+        role: user.0.role.clone(),
+    });
+
+    let page = TailscalePage {
+        version: crate::VERSION,
+        ts_version: status.version,
+        backend_state: status.backend_state,
+        self_peer: status.self_peer,
+        peers,
+        auth_user,
+        nav_links,
+    };
+
+    Ok(Html(page.render()?))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -431,32 +459,4 @@ mod tests {
         assert_eq!(peer.host_name, "laptop");
         assert!(peer.flags().contains(&"active"));
     }
-}
-
-pub async fn tailscale_route(
-    user: AdminUser,
-    State(socket): State<Arc<Path>>,
-    State(nav_links): State<Arc<[NavLink]>>,
-) -> Result<Html<String>, Error> {
-    let mut status = fetch_status(&socket).await?;
-
-    let mut peers: Vec<TailscalePeer> = status.peer.drain().map(|(_, v)| v).collect();
-    peers.sort_by(|a, b| a.host_name.cmp(&b.host_name));
-
-    let auth_user = Some(AuthUserInfo {
-        username: user.0.username.clone(),
-        role: user.0.role.clone(),
-    });
-
-    let page = TailscalePage {
-        version: crate::VERSION,
-        ts_version: status.version,
-        backend_state: status.backend_state,
-        self_peer: status.self_peer,
-        peers,
-        auth_user,
-        nav_links,
-    };
-
-    Ok(Html(page.render()?))
 }

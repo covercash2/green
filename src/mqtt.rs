@@ -1220,10 +1220,10 @@ mod tests {
             AsyncClient::new(MqttOptions::new("green-test", "localhost", 1883), 64);
         // Hold the EventLoop alive in a spawned task so the internal channel
         // stays open, allowing publish() to enqueue without error.
-        let _ = tokio::spawn(async move {
+        drop(tokio::spawn(async move {
             let _hold = eventloop;
             std::future::pending::<()>().await
-        });
+        }));
         let integrations = parse_integrations(&[IntegrationConfig {
             pattern: "zigbee2mqtt/{device}/**".to_string(),
             name: None,
@@ -1399,10 +1399,10 @@ mod tests {
             MqttOptions::new("green-test-metrics", "localhost", 1883),
             64,
         );
-        let _ = tokio::spawn(async move {
+        drop(tokio::spawn(async move {
             let _hold = eventloop;
             std::future::pending::<()>().await
-        });
+        }));
         let registry = prometheus::Registry::new();
         let messages_total = prometheus::IntCounterVec::new(
             prometheus::opts!("mqtt_messages_total", "test"),
