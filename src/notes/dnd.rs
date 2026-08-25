@@ -9,7 +9,8 @@ use std::{
 
 use askama::Template;
 use axum::{
-    extract::{Path as AxumPath, State},
+    extract::{FromRef, FromRequestParts, Path as AxumPath, State},
+    http::request::Parts,
     response::Html,
 };
 
@@ -20,13 +21,11 @@ use crate::{
     index::NavLink,
 };
 
-use super::{
-    RenderedHtml, SECRET_PLACEHOLDER, render_note_body_redacted, render_note_body_revealed,
-    obsidian,
-};
 use super::obsidian::Slug;
-
-// ─── Public types ─────────────────────────────────────────────────────────────
+use super::{
+    RenderedHtml, SECRET_PLACEHOLDER, obsidian, render_note_body_redacted,
+    render_note_body_revealed,
+};
 
 #[derive(Debug, Clone)]
 pub struct Note {
@@ -69,8 +68,6 @@ pub enum NotesStoreError {
     },
 }
 
-// ─── Sorting ──────────────────────────────────────────────────────────────────
-
 /// Natural (numeric-aware) string comparison. Embedded digit runs are compared
 /// numerically so that "Session 10" sorts after "Session 9".
 fn natural_cmp(a: &str, b: &str) -> std::cmp::Ordering {
@@ -99,20 +96,16 @@ fn natural_cmp(a: &str, b: &str) -> std::cmp::Ordering {
                     ord => return ord,
                 }
             }
-            (Some(&(_, ac)), Some(&(_, bc))) => {
-                match ac.cmp(&bc) {
-                    std::cmp::Ordering::Equal => {
-                        let _ = ai.next();
-                        let _ = bi.next();
-                    }
-                    ord => return ord,
+            (Some(&(_, ac)), Some(&(_, bc))) => match ac.cmp(&bc) {
+                std::cmp::Ordering::Equal => {
+                    let _ = ai.next();
+                    let _ = bi.next();
                 }
-            }
+                ord => return ord,
+            },
         }
     }
 }
-
-// ─── NotesStore ───────────────────────────────────────────────────────────────
 
 impl NotesStore {
     /// Scan a vault directory, parsing every `.md` file.
@@ -235,8 +228,6 @@ impl NotesStore {
     }
 }
 
-// ─── NoteVault ────────────────────────────────────────────────────────────────
-
 /// Runtime holder for a scanned notes vault. Supports non-blocking startup and
 /// live refresh without restarting the server.
 ///
@@ -301,7 +292,34 @@ impl NoteVault {
     }
 }
 
-// ─── Templates ────────────────────────────────────────────────────────────────
+/// Resolve just the notes vault out of `ServerState`, so notes routes don't
+/// need to depend on the rest of the app's state.
+impl FromRef<ServerState> for Option<NoteVault> {
+    fn from_ref(state: &ServerState) -> Self {
+        state.notes_store.clone()
+    }
+}
+
+/// Resolves to the configured notes vault, or rejects with
+/// [`Error::NotesNotConfigured`] — so notes routes don't each have to repeat
+/// the "is it configured?" check themselves. Note that this only checks
+/// whether a vault is configured at all; whether its background scan has
+/// finished is a separate, per-request check via `NoteVault::get`.
+pub struct Notes(pub NoteVault);
+
+impl<S> FromRequestParts<S> for Notes
+where
+    S: Send + Sync,
+    Option<NoteVault>: FromRef<S>,
+{
+    type Rejection = Error;
+
+    async fn from_request_parts(_parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
+        Option::<NoteVault>::from_ref(state)
+            .map(Notes)
+            .ok_or(Error::NotesNotConfigured)
+    }
+}
 
 #[derive(Template)]
 #[template(path = "notes_index.html")]
@@ -324,19 +342,12 @@ pub struct NotesDetailPage {
     pub nav_links: Arc<[NavLink]>,
 }
 
-// ─── Handlers ─────────────────────────────────────────────────────────────────
-
 pub async fn notes_index_route(
     MaybeAuthUser(auth_user): MaybeAuthUser,
-    State(state): State<ServerState>,
+    Notes(vault): Notes,
+    State(nav_links): State<Arc<[NavLink]>>,
 ) -> Result<Html<String>, Error> {
-    let store = state
-        .notes_store
-        .as_ref()
-        .ok_or(Error::NotFound)?
-        .get()
-        .await
-        .ok_or(Error::NotFound)?;
+    let store = vault.get().await.ok_or(Error::NotesVaultLoading)?;
 
     let world_notes = store
         .world_notes
@@ -363,7 +374,7 @@ pub async fn notes_index_route(
         world_notes,
         session_notes,
         auth_user,
-        nav_links: state.nav_links.clone(),
+        nav_links,
     };
     Ok(Html(page.render()?))
 }
@@ -371,15 +382,10 @@ pub async fn notes_index_route(
 pub async fn notes_detail_route(
     MaybeAuthUser(auth_user): MaybeAuthUser,
     AxumPath(slug): AxumPath<String>,
-    State(state): State<ServerState>,
+    Notes(vault): Notes,
+    State(nav_links): State<Arc<[NavLink]>>,
 ) -> Result<Html<String>, Error> {
-    let store = state
-        .notes_store
-        .as_ref()
-        .ok_or(Error::NotFound)?
-        .get()
-        .await
-        .ok_or(Error::NotFound)?;
+    let store = vault.get().await.ok_or(Error::NotesVaultLoading)?;
     let note = store.get(&slug).ok_or(Error::NotFound)?;
     let is_admin = auth_user
         .as_ref()
@@ -395,7 +401,7 @@ pub async fn notes_detail_route(
         title: note.title.clone(),
         content,
         auth_user: auth_user.clone(),
-        nav_links: state.nav_links.clone(),
+        nav_links,
     };
     Ok(Html(page.render()?))
 }
@@ -407,18 +413,11 @@ pub async fn notes_detail_route(
 /// completes.
 pub async fn notes_refresh_route(
     AdminUser(_): AdminUser,
-    State(state): State<ServerState>,
+    Notes(vault): Notes,
 ) -> axum::http::StatusCode {
-    match state.notes_store.as_ref() {
-        Some(vault) => {
-            vault.spawn_scan();
-            axum::http::StatusCode::ACCEPTED
-        }
-        None => axum::http::StatusCode::NOT_FOUND,
-    }
+    vault.spawn_scan();
+    axum::http::StatusCode::ACCEPTED
 }
-
-// ─── Tests ────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
 mod tests {
@@ -451,9 +450,8 @@ mod tests {
         let breaker_detail_store: Arc<dyn BreakerDetailStore> = store.clone();
         let breaker_content = Arc::new(BreakerContent::new(store.as_ref()));
         let has_notes = notes_store.is_some();
-        let notes_store = notes_store.map(|s| {
-            NoteVault::from_store_for_test(PathBuf::from("fixtures/vault"), s)
-        });
+        let notes_store =
+            notes_store.map(|s| NoteVault::from_store_for_test(PathBuf::from("fixtures/vault"), s));
         let entries = has_notes
             .then_some(crate::index::OptionalEntry::Notes)
             .into_iter();
@@ -502,8 +500,6 @@ mod tests {
         String::from_utf8(bytes.to_vec()).unwrap()
     }
 
-    // ── natural_cmp ───────────────────────────────────────────────────────────
-
     #[test]
     fn natural_cmp_orders_numeric_suffixes_correctly() {
         use std::cmp::Ordering;
@@ -523,8 +519,11 @@ mod tests {
     #[test]
     fn session_notes_sorted_in_natural_order() {
         let store = fixture_store();
-        let session_titles: Vec<&str> =
-            store.session_notes.iter().map(|n| n.title.as_str()).collect();
+        let session_titles: Vec<&str> = store
+            .session_notes
+            .iter()
+            .map(|n| n.title.as_str())
+            .collect();
         // Verify that numeric titles are in numeric order (not lexicographic).
         // e.g. "Session 2" should come before "Session 10".
         if let (Some(pos1), Some(pos2)) = (
@@ -534,8 +533,6 @@ mod tests {
             assert!(pos1 < pos2, "Session 1 should appear before Session 2");
         }
     }
-
-    // ── NotesStore::scan ──────────────────────────────────────────────────────
 
     #[test]
     fn scan_fixtures_vault() {
@@ -713,8 +710,6 @@ mod tests {
             "expected VaultNotDirectory error"
         );
     }
-
-    // ── HTTP handlers ─────────────────────────────────────────────────────────
 
     #[tokio::test]
     async fn handler_notes_index_no_vault_returns_404() {

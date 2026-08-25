@@ -1,13 +1,16 @@
 use std::{collections::HashSet, sync::Arc};
 
 use askama::Template;
-use axum::{extract::State, response::Html};
+use axum::{
+    extract::{FromRef, State},
+    response::Html,
+};
 
 use crate::{
-    Routes, ServerState,
+    PeerInfo, Routes, ServerState,
     auth::{AuthUserInfo, MaybeAuthUser},
     error::Error,
-    services::{PeerServiceGroup, ServiceStatus},
+    services::{PeerServiceGroup, ServiceStatus, SystemdConfig},
 };
 
 /// A navigation link shown in the site-wide nav bar.
@@ -132,12 +135,39 @@ impl Index {
     }
 }
 
+/// Resolve just the pre-rendered index template out of `ServerState`, so
+/// `index` doesn't need to depend on the rest of the app's state.
+impl FromRef<ServerState> for Index {
+    fn from_ref(state: &ServerState) -> Self {
+        state.index.clone()
+    }
+}
+
+/// Resolve just the configured peers out of `ServerState`, so `index`
+/// doesn't need to depend on the rest of the app's state.
+impl FromRef<ServerState> for Arc<[PeerInfo]> {
+    fn from_ref(state: &ServerState) -> Self {
+        state.peers.clone()
+    }
+}
+
+/// Resolve just the shared HTTP client out of `ServerState`, so `index`
+/// doesn't need to depend on the rest of the app's state.
+impl FromRef<ServerState> for reqwest::Client {
+    fn from_ref(state: &ServerState) -> Self {
+        state.http_client.clone()
+    }
+}
+
 pub async fn index(
     MaybeAuthUser(auth_user): MaybeAuthUser,
-    State(state): State<ServerState>,
+    State(index_template): State<Index>,
+    State(systemd_config): State<Option<SystemdConfig>>,
+    State(peers): State<Arc<[PeerInfo]>>,
+    State(http_client): State<reqwest::Client>,
 ) -> Result<Html<String>, Error> {
     // Local services — always fetched when systemd is configured.
-    let local_services = if let Some(ref config) = state.systemd_config {
+    let local_services = if let Some(ref config) = systemd_config {
         crate::services::query_all(config).await
     } else {
         Vec::new()
@@ -156,11 +186,11 @@ pub async fn index(
     // the sum of all peers.
     // See: https://docs.rs/futures/latest/futures/future/fn.join_all.html
     let peer_groups = if auth_user.as_ref().map(|u| u.is_admin()).unwrap_or(false) {
-        let peers_with_keys: Vec<_> = state.peers.iter().filter(|p| p.api_key.is_some()).collect();
+        let peers_with_keys: Vec<_> = peers.iter().filter(|p| p.api_key.is_some()).collect();
         futures::future::join_all(
             peers_with_keys
                 .iter()
-                .map(|p| crate::services::fetch_peer_services(p, &state.http_client)),
+                .map(|p| crate::services::fetch_peer_services(p, &http_client)),
         )
         .await
     } else {
@@ -171,7 +201,7 @@ pub async fn index(
         auth_user,
         services: local_services,
         peer_groups,
-        ..state.index.clone()
+        ..index_template
     };
     Ok(Html(page.render()?))
 }

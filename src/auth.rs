@@ -6,7 +6,7 @@ use std::{
 };
 
 use axum::{
-    extract::FromRequestParts,
+    extract::{FromRef, FromRequestParts},
     http::request::Parts,
     response::{IntoResponse, Redirect, Response},
 };
@@ -22,8 +22,6 @@ use webauthn_rs::prelude::{
 };
 
 use crate::{ServerState, error::Error, index::NavLink};
-
-// ─── TTL constants ─────────────────────────────────────────────────────────
 
 /// How long a session token remains valid after creation.
 const SESSION_TTL: Duration = Duration::from_secs(7 * 24 * 60 * 60);
@@ -51,8 +49,6 @@ pub struct AuthConfig {
     pub ntfy_url: Option<String>,
 }
 
-// ─── Session storage ───────────────────────────────────────────────────────
-
 #[derive(Debug)]
 pub struct SessionData {
     pub user_id: Uuid,
@@ -60,8 +56,6 @@ pub struct SessionData {
     pub role: Role,
     pub created_at: Instant,
 }
-
-// ─── AuthUserInfo — for templates ─────────────────────────────────────────
 
 /// Lightweight user info passed to Askama templates via the `auth_user` field.
 #[derive(Debug, Clone)]
@@ -75,8 +69,6 @@ impl AuthUserInfo {
         self.role == Role::Admin
     }
 }
-
-// ─── AuthState ────────────────────────────────────────────────────────────
 
 #[derive(Clone)]
 pub struct AuthState {
@@ -279,19 +271,46 @@ impl AuthState {
     }
 }
 
-// ─── Session validity ──────────────────────────────────────────────────────
-
 fn session_is_valid(session: &SessionData) -> bool {
     session.created_at.elapsed() <= SESSION_TTL
 }
-
-// ─── Extractors ────────────────────────────────────────────────────────────
 
 const SESSION_COOKIE: &str = "green_session";
 
 fn session_token_from_parts(parts: &Parts) -> Option<String> {
     let jar = CookieJar::from_headers(&parts.headers);
     jar.get(SESSION_COOKIE).map(|c| c.value().to_owned())
+}
+
+/// Resolves `ServerState` (or any state a module composes) down to just the
+/// auth slice, so extractors and handlers that only need auth don't have to
+/// depend on the rest of the application's state.
+impl FromRef<ServerState> for Option<Arc<AuthState>> {
+    fn from_ref(state: &ServerState) -> Self {
+        state.auth_state.clone()
+    }
+}
+
+/// Resolves to the configured auth state, or rejects with
+/// [`Error::AuthNotConfigured`] — so handlers that require auth to be set up (login,
+/// registration, recovery) don't each have to repeat the "is it
+/// configured?" check themselves. Handlers that should behave gracefully
+/// when auth is absent (e.g. `logout`) should extract
+/// `Option<Arc<AuthState>>` directly instead.
+pub struct Auth(pub Arc<AuthState>);
+
+impl<S> FromRequestParts<S> for Auth
+where
+    S: Send + Sync,
+    Option<Arc<AuthState>>: FromRef<S>,
+{
+    type Rejection = Error;
+
+    async fn from_request_parts(_parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
+        Option::<Arc<AuthState>>::from_ref(state)
+            .map(Auth)
+            .ok_or(Error::AuthNotConfigured)
+    }
 }
 
 /// Resolves to an authenticated user, or redirects to `/auth/login`.
@@ -302,15 +321,16 @@ pub struct AuthUser {
     pub role: Role,
 }
 
-impl FromRequestParts<ServerState> for AuthUser {
+impl<S> FromRequestParts<S> for AuthUser
+where
+    S: Send + Sync,
+    Option<Arc<AuthState>>: FromRef<S>,
+{
     type Rejection = Response;
 
-    async fn from_request_parts(
-        parts: &mut Parts,
-        state: &ServerState,
-    ) -> Result<Self, Self::Rejection> {
-        let auth = state
-            .auth_state
+    async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
+        let auth_opt = Option::<Arc<AuthState>>::from_ref(state);
+        let auth = auth_opt
             .as_ref()
             .ok_or_else(|| Redirect::to("/").into_response())?;
 
@@ -344,13 +364,14 @@ impl FromRequestParts<ServerState> for AuthUser {
 /// Authenticated non-admin requests get a 403.
 pub struct AdminUser(pub AuthUser);
 
-impl FromRequestParts<ServerState> for AdminUser {
+impl<S> FromRequestParts<S> for AdminUser
+where
+    S: Send + Sync,
+    Option<Arc<AuthState>>: FromRef<S>,
+{
     type Rejection = Response;
 
-    async fn from_request_parts(
-        parts: &mut Parts,
-        state: &ServerState,
-    ) -> Result<Self, Self::Rejection> {
+    async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
         let user = AuthUser::from_request_parts(parts, state).await?; // propagates the /auth/login redirect if unauthenticated
         if user.role != Role::Admin {
             return Err(Error::Forbidden.into_response());
@@ -362,14 +383,16 @@ impl FromRequestParts<ServerState> for AdminUser {
 /// Always succeeds — returns `None` if no valid session exists.
 pub struct MaybeAuthUser(pub Option<AuthUserInfo>);
 
-impl FromRequestParts<ServerState> for MaybeAuthUser {
+impl<S> FromRequestParts<S> for MaybeAuthUser
+where
+    S: Send + Sync,
+    Option<Arc<AuthState>>: FromRef<S>,
+{
     type Rejection = Infallible;
 
-    async fn from_request_parts(
-        parts: &mut Parts,
-        state: &ServerState,
-    ) -> Result<Self, Self::Rejection> {
-        let Some(auth) = state.auth_state.as_ref() else {
+    async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
+        let auth_opt = Option::<Arc<AuthState>>::from_ref(state);
+        let Some(auth) = auth_opt.as_ref() else {
             return Ok(MaybeAuthUser(None));
         };
         let Some(token) = session_token_from_parts(parts) else {
@@ -379,8 +402,6 @@ impl FromRequestParts<ServerState> for MaybeAuthUser {
         Ok(MaybeAuthUser(info))
     }
 }
-
-// ─── Cookie helpers ────────────────────────────────────────────────────────
 
 pub fn make_session_cookie(token: String) -> Cookie<'static> {
     Cookie::build((SESSION_COOKIE, token))
@@ -401,14 +422,10 @@ pub fn clear_session_cookie() -> Cookie<'static> {
         .build()
 }
 
-// ─── Handler request/response types ───────────────────────────────────────
-
 #[derive(Debug, Deserialize)]
 pub struct StartRegRequest {
     pub username: String,
 }
-
-// ─── Handlers ─────────────────────────────────────────────────────────────
 
 use askama::Template;
 use axum::{
@@ -441,7 +458,7 @@ pub struct RegisterPage {
 }
 
 pub async fn login_page(
-    State(s): State<ServerState>,
+    State(nav_links): State<Arc<[NavLink]>>,
     Query(q): Query<LoginQuery>,
 ) -> Result<Html<String>, Error> {
     Ok(Html(
@@ -452,29 +469,27 @@ pub async fn login_page(
                 .next
                 .filter(|n| n.starts_with('/') && !n.starts_with("//"))
                 .unwrap_or_else(|| "/".to_owned()),
-            nav_links: s.nav_links.clone(),
+            nav_links,
         }
         .render()?,
     ))
 }
 
-pub async fn register_page(State(s): State<ServerState>) -> Result<Html<String>, Error> {
+pub async fn register_page(State(nav_links): State<Arc<[NavLink]>>) -> Result<Html<String>, Error> {
     Ok(Html(
         RegisterPage {
             version: crate::VERSION,
             auth_user: None,
-            nav_links: s.nav_links.clone(),
+            nav_links,
         }
         .render()?,
     ))
 }
 
 pub async fn start_registration(
-    State(s): State<ServerState>,
+    Auth(auth): Auth,
     Json(req): Json<StartRegRequest>,
 ) -> Result<Json<Value>, Error> {
-    let auth = s.auth_state.as_ref().ok_or(Error::NotFound)?;
-
     let user_id = auth
         .load_passkeys(&req.username)
         .await?
@@ -499,11 +514,9 @@ pub async fn start_registration(
 }
 
 pub async fn finish_registration(
-    State(s): State<ServerState>,
+    Auth(auth): Auth,
     Json(body): Json<Value>,
 ) -> Result<(CookieJar, Redirect), Error> {
-    let auth = s.auth_state.as_ref().ok_or(Error::NotFound)?;
-
     let username = body
         .get("username")
         .and_then(|v| v.as_str())
@@ -563,8 +576,6 @@ pub async fn finish_registration(
     Ok((jar, Redirect::to("/")))
 }
 
-// ─── Discoverable / conditional-UI authentication ─────────────────────────────
-
 #[derive(Debug, Serialize)]
 pub struct DiscoverableChallengeResponse {
     #[serde(rename = "publicKey")]
@@ -575,10 +586,8 @@ pub struct DiscoverableChallengeResponse {
 /// Start a discoverable (conditional-UI) authentication.
 /// No username is required; the browser presents passkeys via its autofill UI.
 pub async fn start_discoverable_auth(
-    State(s): State<ServerState>,
+    Auth(auth): Auth,
 ) -> Result<Json<DiscoverableChallengeResponse>, Error> {
-    let auth = s.auth_state.as_ref().ok_or(Error::NotFound)?;
-
     auth.cleanup_discoverable_states().await;
 
     let (rcr, state) = auth
@@ -613,12 +622,10 @@ pub struct FinishDiscoverableRequest {
 /// Finish a discoverable (conditional-UI) authentication.
 /// Looks up the user by the `userHandle` embedded in the credential.
 pub async fn finish_discoverable_auth(
-    State(s): State<ServerState>,
+    Auth(auth): Auth,
     jar: CookieJar,
     Json(req): Json<FinishDiscoverableRequest>,
 ) -> Result<(CookieJar, Redirect), Error> {
-    let auth = s.auth_state.as_ref().ok_or(Error::NotFound)?;
-
     let disc_state = {
         let mut states = auth.discoverable_states.lock().await;
         states
@@ -684,8 +691,11 @@ pub async fn finish_discoverable_auth(
     Ok((jar, Redirect::to("/")))
 }
 
-pub async fn logout(State(s): State<ServerState>, jar: CookieJar) -> (CookieJar, Redirect) {
-    if let Some(auth) = s.auth_state.as_ref()
+pub async fn logout(
+    State(auth_state): State<Option<Arc<AuthState>>>,
+    jar: CookieJar,
+) -> (CookieJar, Redirect) {
+    if let Some(auth) = auth_state.as_ref()
         && let Some(token) = jar.get(SESSION_COOKIE).map(|c| c.value().to_owned())
     {
         let username = {
@@ -703,8 +713,6 @@ pub async fn logout(State(s): State<ServerState>, jar: CookieJar) -> (CookieJar,
     let jar = jar.add(clear_session_cookie());
     (jar, Redirect::to("/auth/login"))
 }
-
-// ─── Recovery ─────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Deserialize)]
 pub struct StartRecoveryRequest {
@@ -736,7 +744,7 @@ pub struct RecoveryPage {
 }
 
 pub async fn recover_page(
-    State(s): State<ServerState>,
+    State(nav_links): State<Arc<[NavLink]>>,
     Query(q): Query<RecoveryQuery>,
 ) -> Result<Html<String>, Error> {
     Ok(Html(
@@ -746,7 +754,7 @@ pub async fn recover_page(
             sent: q.sent.unwrap_or(false),
             username: q.username.unwrap_or_default(),
             error: q.error,
-            nav_links: s.nav_links.clone(),
+            nav_links,
         }
         .render()?,
     ))
@@ -787,11 +795,9 @@ fn generate_otc() -> String {
 }
 
 pub async fn start_recovery(
-    State(s): State<ServerState>,
+    Auth(auth): Auth,
     Form(req): Form<StartRecoveryRequest>,
 ) -> Result<Redirect, Error> {
-    let auth = s.auth_state.as_ref().ok_or(Error::NotFound)?;
-
     // Check user exists but don't reveal the result (anti-enumeration)
     let user_exists = auth
         .load_passkeys(&req.username)
@@ -829,7 +835,7 @@ pub async fn start_recovery(
 }
 
 pub async fn verify_recovery(
-    State(s): State<ServerState>,
+    State(auth_state): State<Option<Arc<AuthState>>>,
     jar: CookieJar,
     Form(req): Form<VerifyRecoveryRequest>,
 ) -> Response {
@@ -838,7 +844,7 @@ pub async fn verify_recovery(
         percent_encode(&req.username)
     );
 
-    let Some(auth) = s.auth_state.as_ref() else {
+    let Some(auth) = auth_state.as_ref() else {
         return Redirect::to("/").into_response();
     };
 
@@ -880,8 +886,6 @@ pub async fn verify_recovery(
     let jar = jar.add(make_session_cookie(token));
     (jar, Redirect::to("/")).into_response()
 }
-
-// ─── Tests ────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
 impl AuthState {
@@ -1092,8 +1096,6 @@ mod tests {
             .unwrap();
         assert_eq!(res.status(), StatusCode::OK);
     }
-
-    // ── Recovery tests ────────────────────────────────────────────────────────
 
     fn recovery_router(state: ServerState) -> axum::Router {
         axum::Router::new()

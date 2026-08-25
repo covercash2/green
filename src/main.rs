@@ -253,6 +253,14 @@ pub struct ServerState {
     pub webhook_secret: Option<Arc<str>>,
 }
 
+/// Resolve just the site-wide nav links out of `ServerState`, since nearly
+/// every page template needs them regardless of what else the route depends on.
+impl axum::extract::FromRef<ServerState> for Arc<[NavLink]> {
+    fn from_ref(state: &ServerState) -> Self {
+        state.nav_links.clone()
+    }
+}
+
 impl ServerState {
     async fn new(config: &Config) -> Result<Self, Error> {
         // Build a shared HTTP client once at startup.  reqwest::Client is

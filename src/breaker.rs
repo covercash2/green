@@ -1,6 +1,6 @@
 use askama::Template;
 use axum::{
-    extract::{Path, State},
+    extract::{FromRef, Path, State},
     response::Html,
 };
 
@@ -13,6 +13,22 @@ use crate::{
     error::Error,
     index::NavLink,
 };
+
+/// Resolve just the pre-rendered breaker panel content out of `ServerState`,
+/// so `breaker_route` doesn't need to depend on the rest of the app's state.
+impl FromRef<ServerState> for Arc<BreakerContent> {
+    fn from_ref(state: &ServerState) -> Self {
+        state.breaker_content.clone()
+    }
+}
+
+/// Resolve just the breaker slot data store, so `breaker_detail_route`
+/// doesn't need to depend on the rest of the app's state.
+impl FromRef<ServerState> for Arc<dyn BreakerDetailStore> {
+    fn from_ref(state: &ServerState) -> Self {
+        state.breaker_detail_store.clone()
+    }
+}
 
 /// Pre-computed breaker panel HTML content (the circuit layout).
 /// Stored in ServerState and used to construct `BreakerPage` per request.
@@ -137,17 +153,18 @@ fn render_from_store(store: &dyn BreakerDetailStore) -> String {
 
 pub async fn breaker_route(
     user: AdminUser,
-    State(state): State<ServerState>,
+    State(content): State<Arc<BreakerContent>>,
+    State(nav_links): State<Arc<[NavLink]>>,
 ) -> Result<Html<String>, Error> {
     let auth_user = Some(AuthUserInfo {
         username: user.0.username.clone(),
         role: user.0.role.clone(),
     });
     let page = BreakerPage {
-        content: state.breaker_content.0.clone(),
+        content: content.0.clone(),
         version: crate::VERSION,
         auth_user,
-        nav_links: state.nav_links.clone(),
+        nav_links,
     };
     Ok(Html(page.render()?))
 }
@@ -161,15 +178,10 @@ pub struct BreakerDetailTemplate<'a> {
 pub async fn breaker_detail_route(
     _user: AdminUser,
     Path(key): Path<String>,
-    State(state): State<ServerState>,
+    State(store): State<Arc<dyn BreakerDetailStore>>,
 ) -> Result<Html<String>, Error> {
-    let lookup_key = state
-        .breaker_detail_store
-        .coupled_primary_of(&key)
-        .unwrap_or(&key)
-        .to_owned();
-    let detail = state
-        .breaker_detail_store
+    let lookup_key = store.coupled_primary_of(&key).unwrap_or(&key).to_owned();
+    let detail = store
         .get(&lookup_key)
         .filter(|s| s.amperage.is_some() || s.devices.is_some() || s.notes.is_some());
     Ok(Html(BreakerDetailTemplate { detail }.render()?))
@@ -198,8 +210,6 @@ mod tests {
             notes: None,
         }
     }
-
-    // ── breaker_class ──────────────────────────────────────────────────────────
 
     #[test]
     fn class_empty_string() {
@@ -232,8 +242,6 @@ mod tests {
         assert_eq!(breaker_class("kitchen lights"), "breaker-known");
     }
 
-    // ── html_escape ────────────────────────────────────────────────────────────
-
     #[test]
     fn escape_ampersand() {
         assert_eq!(html_escape("a&b"), "a&amp;b");
@@ -261,8 +269,6 @@ mod tests {
             "&lt;a href=&quot;x&amp;y&quot;&gt;"
         );
     }
-
-    // ── render_from_store ──────────────────────────────────────────────────────
 
     #[test]
     fn render_empty_store_has_panel_wrapper() {
@@ -317,8 +323,6 @@ mod tests {
         let html = render_from_store(&store);
         assert!(html.contains('—'));
     }
-
-    // ── BreakerContent ─────────────────────────────────────────────────────────
 
     #[test]
     fn breaker_content_new_wraps_panel() {

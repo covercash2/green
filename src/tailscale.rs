@@ -1,7 +1,10 @@
 use std::{collections::HashMap, path::Path, sync::Arc};
 
 use askama::Template;
-use axum::{extract::State, response::Html};
+use axum::{
+    extract::{FromRef, State},
+    response::Html,
+};
 use serde::Deserialize;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
@@ -11,6 +14,14 @@ use crate::{
     error::Error,
     index::NavLink,
 };
+
+/// Resolve just the Tailscale socket path out of `ServerState`, so
+/// `tailscale_route` doesn't need to depend on the rest of the app's state.
+impl FromRef<ServerState> for Arc<Path> {
+    fn from_ref(state: &ServerState) -> Self {
+        state.tailscale_socket.clone()
+    }
+}
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "PascalCase")]
@@ -159,8 +170,6 @@ async fn fetch_status(socket_path: &Path) -> Result<TailscaleStatus, Error> {
 mod tests {
     use super::*;
 
-    // Helpers ─────────────────────────────────────────────────────────────────
-
     fn peer_with_bytes(rx: u64, tx: u64) -> TailscalePeer {
         TailscalePeer {
             rx_bytes: Some(rx),
@@ -168,8 +177,6 @@ mod tests {
             ..Default::default()
         }
     }
-
-    // ── fmt_bytes ─────────────────────────────────────────────────────────────
 
     #[test]
     fn fmt_bytes_under_kib() {
@@ -201,8 +208,6 @@ mod tests {
         );
     }
 
-    // ── rx_str / tx_str ───────────────────────────────────────────────────────
-
     #[test]
     fn rx_str_with_value() {
         let peer = peer_with_bytes(2048, 0);
@@ -222,8 +227,6 @@ mod tests {
         assert_eq!(peer.tx_str(), "");
     }
 
-    // ── ips_str ───────────────────────────────────────────────────────────────
-
     #[test]
     fn ips_str_with_multiple_ips() {
         let peer = TailscalePeer {
@@ -237,8 +240,6 @@ mod tests {
     fn ips_str_none_returns_empty() {
         assert_eq!(TailscalePeer::default().ips_str(), "");
     }
-
-    // ── is_online ─────────────────────────────────────────────────────────────
 
     #[test]
     fn is_online_true() {
@@ -262,8 +263,6 @@ mod tests {
     fn is_online_none_defaults_false() {
         assert!(!TailscalePeer::default().is_online());
     }
-
-    // ── flags ─────────────────────────────────────────────────────────────────
 
     #[test]
     fn flags_empty_by_default() {
@@ -319,8 +318,6 @@ mod tests {
         assert!(flags.contains(&"keep alive"));
     }
 
-    // ── last_seen_str / last_handshake_str ────────────────────────────────────
-
     #[test]
     fn last_seen_str_normal_timestamp() {
         let peer = TailscalePeer {
@@ -362,8 +359,6 @@ mod tests {
         assert_eq!(peer.last_handshake_str(), None);
     }
 
-    // ── relay_str ─────────────────────────────────────────────────────────────
-
     #[test]
     fn relay_str_with_relay() {
         let peer = TailscalePeer {
@@ -386,8 +381,6 @@ mod tests {
     fn relay_str_none_field_is_none() {
         assert_eq!(TailscalePeer::default().relay_str(), None);
     }
-
-    // ── TailscaleStatus deserialization ───────────────────────────────────────
 
     #[test]
     fn tailscale_status_deserializes_from_json() {
@@ -442,9 +435,10 @@ mod tests {
 
 pub async fn tailscale_route(
     user: AdminUser,
-    State(state): State<ServerState>,
+    State(socket): State<Arc<Path>>,
+    State(nav_links): State<Arc<[NavLink]>>,
 ) -> Result<Html<String>, Error> {
-    let mut status = fetch_status(&state.tailscale_socket).await?;
+    let mut status = fetch_status(&socket).await?;
 
     let mut peers: Vec<TailscalePeer> = status.peer.drain().map(|(_, v)| v).collect();
     peers.sort_by(|a, b| a.host_name.cmp(&b.host_name));
@@ -461,7 +455,7 @@ pub async fn tailscale_route(
         self_peer: status.self_peer,
         peers,
         auth_user,
-        nav_links: state.nav_links.clone(),
+        nav_links,
     };
 
     Ok(Html(page.render()?))

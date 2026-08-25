@@ -104,10 +104,7 @@ where
             Ok(Vec::new())
         }
 
-        fn visit_some<D: serde::Deserializer<'de>>(
-            self,
-            d: D,
-        ) -> Result<Vec<String>, D::Error> {
+        fn visit_some<D: serde::Deserializer<'de>>(self, d: D) -> Result<Vec<String>, D::Error> {
             d.deserialize_any(self)
         }
 
@@ -189,7 +186,11 @@ impl NoteRef {
     #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn new(rel_path: PathBuf, slug: Slug) -> Self {
         let depth = rel_path.components().count();
-        Self { rel_path, slug, depth }
+        Self {
+            rel_path,
+            slug,
+            depth,
+        }
     }
 }
 
@@ -351,7 +352,10 @@ pub fn parse_wiki_link(inner: &str) -> WikiLink {
 
     // Split heading from target
     let (target, heading) = if let Some(hash) = target_part.find('#') {
-        (&target_part[..hash], Some(target_part[hash + 1..].to_owned()))
+        (
+            &target_part[..hash],
+            Some(target_part[hash + 1..].to_owned()),
+        )
     } else {
         (target_part, None)
     };
@@ -550,8 +554,7 @@ mod tests {
 
     #[test]
     fn fm_parses_aliases() {
-        let input =
-            "---\ntitle: Gillen\naliases: [The Alchemist, Gillen the Grey]\n---\nbody";
+        let input = "---\ntitle: Gillen\naliases: [The Alchemist, Gillen the Grey]\n---\nbody";
         let (fm, _) = parse_frontmatter::<Frontmatter>(input);
         assert_eq!(fm.aliases.len(), 2);
         assert!(fm.aliases.contains(&"The Alchemist".to_string()));
@@ -600,7 +603,10 @@ mod tests {
         let mut idx = VaultIndex::default();
         idx.register("gillen", make_ref("Sub/gillen.md", 2));
         idx.register("gillen", make_ref("gillen.md", 1));
-        assert_eq!(idx.get("gillen").unwrap().rel_path, PathBuf::from("gillen.md"));
+        assert_eq!(
+            idx.get("gillen").unwrap().rel_path,
+            PathBuf::from("gillen.md")
+        );
     }
 
     #[test]
@@ -608,7 +614,10 @@ mod tests {
         let mut idx = VaultIndex::default();
         idx.register("gillen", make_ref("gillen.md", 1));
         idx.register("gillen", make_ref("Sub/gillen.md", 2));
-        assert_eq!(idx.get("gillen").unwrap().rel_path, PathBuf::from("gillen.md"));
+        assert_eq!(
+            idx.get("gillen").unwrap().rel_path,
+            PathBuf::from("gillen.md")
+        );
     }
 
     #[test]

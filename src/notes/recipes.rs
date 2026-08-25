@@ -7,10 +7,10 @@ use std::{
     sync::Arc,
 };
 
-use askama::Template;
-use axum::{
-    extract::{Path as AxumPath, State},
-    response::Html,
+use super::obsidian;
+use super::{
+    RenderedHtml, SECRET_PLACEHOLDER, Slug, render_markdown, render_note_body_redacted,
+    render_note_body_revealed,
 };
 use crate::{
     ServerState, VERSION,
@@ -18,13 +18,12 @@ use crate::{
     error::Error,
     index::NavLink,
 };
-use super::{
-    RenderedHtml, SECRET_PLACEHOLDER, Slug, render_markdown, render_note_body_redacted,
-    render_note_body_revealed,
+use askama::Template;
+use axum::{
+    extract::{FromRef, FromRequestParts, Path as AxumPath, State},
+    http::request::Parts,
+    response::Html,
 };
-use super::obsidian;
-
-// ─── Public types ─────────────────────────────────────────────────────────────
 
 /// A fully-parsed and rendered recipe note.
 #[derive(Debug, Clone)]
@@ -99,8 +98,7 @@ impl RecipeStore {
         let live_slugs: HashSet<Slug> = md_paths
             .iter()
             .filter_map(|path| {
-                let note: obsidian::ParsedNote =
-                    obsidian::parse_note(path).ok()?;
+                let note: obsidian::ParsedNote = obsidian::parse_note(path).ok()?;
                 if note.frontmatter.tags.iter().any(|t| t == "recipe") {
                     Some(note.slug)
                 } else {
@@ -128,7 +126,10 @@ impl RecipeStore {
             let fm = note.frontmatter;
             let body = &note.body;
             let slug = note.slug;
-            let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or_default();
+            let stem = path
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or_default();
             let title = fm.title.unwrap_or_else(|| {
                 stem.chars()
                     .map(|c| if c == '-' || c == '_' { ' ' } else { c })
@@ -144,17 +145,26 @@ impl RecipeStore {
                 let player = RenderedHtml::from_placeholder(SECRET_PLACEHOLDER);
                 let gm_rendered = render_markdown(body);
                 let gm = RenderedHtml::from_html(obsidian::resolve_wiki_links(
-                    gm_rendered.as_str(), &vault_index, &live_slugs, "/recipes/",
+                    gm_rendered.as_str(),
+                    &vault_index,
+                    &live_slugs,
+                    "/recipes/",
                 ));
                 (player, gm, true)
             } else {
                 let (player_rendered, has_secrets) = render_note_body_redacted(body);
                 let gm_rendered = render_note_body_revealed(body);
                 let player_html = RenderedHtml::from_html(obsidian::resolve_wiki_links(
-                    player_rendered.as_str(), &vault_index, &live_slugs, "/recipes/",
+                    player_rendered.as_str(),
+                    &vault_index,
+                    &live_slugs,
+                    "/recipes/",
                 ));
                 let gm_html = RenderedHtml::from_html(obsidian::resolve_wiki_links(
-                    gm_rendered.as_str(), &vault_index, &live_slugs, "/recipes/",
+                    gm_rendered.as_str(),
+                    &vault_index,
+                    &live_slugs,
+                    "/recipes/",
                 ));
                 (player_html, gm_html, has_secrets)
             };
@@ -213,7 +223,32 @@ impl RecipeStore {
     }
 }
 
-// ─── Templates ────────────────────────────────────────────────────────────────
+/// Resolve just the scanned recipe vault out of `ServerState`, so recipe
+/// routes don't need to depend on the rest of the app's state.
+impl FromRef<ServerState> for Option<Arc<RecipeStore>> {
+    fn from_ref(state: &ServerState) -> Self {
+        state.recipes_store.clone()
+    }
+}
+
+/// Resolves to the configured recipe vault, or rejects with
+/// [`Error::RecipesNotConfigured`] — so recipe routes don't each have to
+/// repeat the "is it configured?" check themselves.
+pub struct Recipes(pub Arc<RecipeStore>);
+
+impl<S> FromRequestParts<S> for Recipes
+where
+    S: Send + Sync,
+    Option<Arc<RecipeStore>>: FromRef<S>,
+{
+    type Rejection = Error;
+
+    async fn from_request_parts(_parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
+        Option::<Arc<RecipeStore>>::from_ref(state)
+            .map(Recipes)
+            .ok_or(Error::RecipesNotConfigured)
+    }
+}
 
 #[derive(Template)]
 #[template(path = "recipes_index.html")]
@@ -239,20 +274,17 @@ pub struct RecipesDetailPage {
     pub nav_links: Arc<[NavLink]>,
 }
 
-// ─── Handlers ─────────────────────────────────────────────────────────────────
-
 /// GET /recipes — recipe index, grouped by category.
 pub async fn recipes_index_route(
     MaybeAuthUser(auth_user): MaybeAuthUser,
-    State(state): State<ServerState>,
+    Recipes(store): Recipes,
+    State(nav_links): State<Arc<[NavLink]>>,
 ) -> Result<Html<String>, Error> {
-    let store: &Arc<RecipeStore> = state.recipes_store.as_ref().ok_or(Error::NotFound)?;
-
     let page = RecipesIndexPage {
         version: VERSION,
         groups: store.groups.clone(),
         auth_user,
-        nav_links: state.nav_links.clone(),
+        nav_links,
     };
     Ok(Html(page.render()?))
 }
@@ -261,9 +293,9 @@ pub async fn recipes_index_route(
 pub async fn recipes_detail_route(
     MaybeAuthUser(auth_user): MaybeAuthUser,
     AxumPath(slug): AxumPath<String>,
-    State(state): State<ServerState>,
+    Recipes(store): Recipes,
+    State(nav_links): State<Arc<[NavLink]>>,
 ) -> Result<Html<String>, Error> {
-    let store: &Arc<RecipeStore> = state.recipes_store.as_ref().ok_or(Error::NotFound)?;
     let recipe = store.get(&slug).ok_or(Error::NotFound)?;
     let is_admin = auth_user
         .as_ref()
@@ -283,12 +315,10 @@ pub async fn recipes_detail_route(
         cook_time: recipe.cook_time.clone(),
         content,
         auth_user,
-        nav_links: state.nav_links.clone(),
+        nav_links,
     };
     Ok(Html(page.render()?))
 }
-
-// ─── Tests ────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
 mod tests {
@@ -305,8 +335,6 @@ mod tests {
     fn fixture_vault() -> PathBuf {
         PathBuf::from("fixtures/vault")
     }
-
-    // ── RecipeStore::scan ────────────────────────────────────────────────────
 
     #[test]
     fn recipe_store_scan_loads_recipe_notes() {
@@ -388,8 +416,6 @@ mod tests {
         );
     }
 
-    // ── obsidian::parse_frontmatter (recipe fields) ───────────────────────────
-
     #[test]
     fn parse_recipe_fm_all_fields() {
         let raw = "---\ntitle: Test Recipe\ntags: [recipe]\ncategory: breakfast\nservings: \"2\"\nprep_time: \"5 min\"\ncook_time: \"10 min\"\n---\nBody.\n";
@@ -413,8 +439,6 @@ mod tests {
         assert!(fm.prep_time.is_none());
         assert!(fm.cook_time.is_none());
     }
-
-    // ── Handler integration tests ─────────────────────────────────────────────
 
     async fn make_state_without_recipes() -> ServerState {
         crate::tests::minimal_server_state().await

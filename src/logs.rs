@@ -4,7 +4,8 @@ use std::{convert::Infallible, path::PathBuf, sync::Arc, time::Duration};
 
 use askama::Template;
 use axum::{
-    extract::State,
+    extract::{FromRef, FromRequestParts, State},
+    http::request::Parts,
     response::{
         Html,
         sse::{Event, KeepAlive, Sse},
@@ -35,6 +36,33 @@ pub struct LogConfig {
     pub error_log: PathBuf,
 }
 
+/// Resolve just the log file paths out of `ServerState`, so the log-stream
+/// routes don't need to depend on the rest of the app's state.
+impl FromRef<ServerState> for Option<LogConfig> {
+    fn from_ref(state: &ServerState) -> Self {
+        state.log_config.clone()
+    }
+}
+
+/// Resolves to the configured log paths, or rejects with
+/// [`Error::LogsNotConfigured`] — so log-stream routes don't each have to
+/// repeat the "is it configured?" check themselves.
+pub struct Logs(pub LogConfig);
+
+impl<S> FromRequestParts<S> for Logs
+where
+    S: Send + Sync,
+    Option<LogConfig>: FromRef<S>,
+{
+    type Rejection = Error;
+
+    async fn from_request_parts(_parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
+        Option::<LogConfig>::from_ref(state)
+            .map(Logs)
+            .ok_or(Error::LogsNotConfigured)
+    }
+}
+
 #[derive(Template)]
 #[template(path = "logs_app.html")]
 struct LogsAppPage {
@@ -54,7 +82,7 @@ struct LogsErrorsPage {
 /// GET `/logs/app` — renders the app trace log page (admin only).
 pub async fn logs_app_route(
     user: AdminUser,
-    State(state): State<ServerState>,
+    State(nav_links): State<Arc<[NavLink]>>,
 ) -> Result<Html<String>, Error> {
     let auth_user = Some(AuthUserInfo {
         username: user.0.username.clone(),
@@ -64,7 +92,7 @@ pub async fn logs_app_route(
         LogsAppPage {
             version: crate::VERSION,
             auth_user,
-            nav_links: state.nav_links.clone(),
+            nav_links,
         }
         .render()?,
     ))
@@ -73,7 +101,7 @@ pub async fn logs_app_route(
 /// GET `/logs/errors` — renders the error log page (admin only).
 pub async fn logs_errors_route(
     user: AdminUser,
-    State(state): State<ServerState>,
+    State(nav_links): State<Arc<[NavLink]>>,
 ) -> Result<Html<String>, Error> {
     let auth_user = Some(AuthUserInfo {
         username: user.0.username.clone(),
@@ -83,7 +111,7 @@ pub async fn logs_errors_route(
         LogsErrorsPage {
             version: crate::VERSION,
             auth_user,
-            nav_links: state.nav_links.clone(),
+            nav_links,
         }
         .render()?,
     ))
@@ -148,36 +176,22 @@ fn tail_log_stream(path: PathBuf) -> impl Stream<Item = Result<Event, Infallible
 /// GET `/api/logs/app/stream` — SSE stream of app trace log lines (admin only).
 pub async fn logs_app_stream_route(
     _user: AdminUser,
-    State(state): State<ServerState>,
+    Logs(log_config): Logs,
 ) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, Error> {
-    let path = state
-        .log_config
-        .as_ref()
-        .ok_or(Error::LogsNotConfigured)?
-        .app_log
-        .clone();
-    Ok(Sse::new(tail_log_stream(path)).keep_alive(KeepAlive::default()))
+    Ok(Sse::new(tail_log_stream(log_config.app_log)).keep_alive(KeepAlive::default()))
 }
 
 /// GET `/api/logs/errors/stream` — SSE stream of error log lines (admin only).
 pub async fn logs_errors_stream_route(
     _user: AdminUser,
-    State(state): State<ServerState>,
+    Logs(log_config): Logs,
 ) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, Error> {
-    let path = state
-        .log_config
-        .as_ref()
-        .ok_or(Error::LogsNotConfigured)?
-        .error_log
-        .clone();
-    Ok(Sse::new(tail_log_stream(path)).keep_alive(KeepAlive::default()))
+    Ok(Sse::new(tail_log_stream(log_config.error_log)).keep_alive(KeepAlive::default()))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    // ── read_last_lines ───────────────────────────────────────────────────────
 
     #[tokio::test]
     async fn read_last_lines_nonexistent_returns_empty() {

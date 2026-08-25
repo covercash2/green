@@ -14,7 +14,8 @@ use time::format_description::well_known::Rfc3339;
 use askama::Template;
 use axum::{
     Json,
-    extract::{Query, State},
+    extract::{FromRef, FromRequestParts, Query, State},
+    http::request::Parts,
     response::{
         Html,
         sse::{Event, KeepAlive, Sse},
@@ -27,12 +28,10 @@ use tokio::sync::{Mutex as TokioMutex, broadcast, watch};
 
 use crate::{
     ServerState,
-    auth::{AdminUser, AuthUserInfo},
+    auth::{AdminUser, AuthState, AuthUserInfo},
     error::Error,
     index::NavLink,
 };
-
-// ─── Integration pattern types ───────────────────────────────────────────────
 
 /// Parsed segment of an integration topic pattern.
 #[derive(Debug)]
@@ -100,8 +99,6 @@ fn default_topics() -> Vec<String> {
 fn default_scrollback() -> usize {
     200
 }
-
-// ─── Internal integration representation ─────────────────────────────────────
 
 /// A parsed integration used for device extraction from MQTT topics.
 #[derive(Debug)]
@@ -262,6 +259,33 @@ pub struct MqttState {
     pub publish_client: AsyncClient,
 }
 
+/// Resolve just the MQTT fan-out state out of `ServerState`, so MQTT routes
+/// don't need to depend on the rest of the app's state.
+impl FromRef<ServerState> for Option<Arc<MqttState>> {
+    fn from_ref(state: &ServerState) -> Self {
+        state.mqtt_state.clone()
+    }
+}
+
+/// Resolves to the configured MQTT state, or rejects with
+/// [`Error::MqttNotConfigured`] — so routes that need MQTT don't each have
+/// to repeat the "is it configured?" check themselves.
+pub struct Mqtt(pub Arc<MqttState>);
+
+impl<S> FromRequestParts<S> for Mqtt
+where
+    S: Send + Sync,
+    Option<Arc<MqttState>>: FromRef<S>,
+{
+    type Rejection = Error;
+
+    async fn from_request_parts(_parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
+        Option::<Arc<MqttState>>::from_ref(state)
+            .map(Mqtt)
+            .ok_or(Error::MqttNotConfigured)
+    }
+}
+
 /// Abstraction over the MQTT client's subscribe call, injected into
 /// [`handle_conn_ack`] so it can be mocked in tests.
 pub(crate) trait MqttSubscriber: Send + Sync {
@@ -399,8 +423,6 @@ pub async fn run_mqtt_task(
         }
     }
 }
-
-// ─── Device tracker task ─────────────────────────────────────────────────────
 
 /// A row returned from `mqtt_devices` for display in the devices page.
 pub struct DeviceRow {
@@ -548,8 +570,6 @@ fn utc_now() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    // ── parse_integrations / match_topic / match_integrations ─────────────────
 
     fn parsed(pattern: &str) -> Vec<PatternSegment> {
         parse_integrations(&[IntegrationConfig {
@@ -712,8 +732,6 @@ mod tests {
         assert_eq!(cfg.integrations[0].name.as_deref(), Some("Zigbee"));
     }
 
-    // ── MqttConfig defaults ───────────────────────────────────────────────────
-
     #[test]
     fn mqtt_config_default_host() {
         let cfg: MqttConfig = toml::from_str(r#"client_id = "test""#).unwrap();
@@ -759,8 +777,6 @@ mod tests {
         assert_eq!(cfg.topics, vec!["home/#", "sensors/#"]);
     }
 
-    // ── MqttMessage serde ─────────────────────────────────────────────────────
-
     #[test]
     fn mqtt_message_round_trips_json() {
         let msg = MqttMessage {
@@ -788,8 +804,6 @@ mod tests {
         assert!(v.get("received_at").is_some());
     }
 
-    // ── utc_now ───────────────────────────────────────────────────────────────
-
     #[test]
     fn utc_now_is_rfc3339_format() {
         let ts = utc_now();
@@ -814,8 +828,6 @@ mod tests {
             "successive calls should differ by at least 1 second"
         );
     }
-
-    // ── handler unit tests ────────────────────────────────────────────────────
 
     /// Mock that records which topics were subscribed.
     #[derive(Default)]
@@ -906,8 +918,6 @@ mod tests {
         assert!(matches!(rx.try_recv(), Ok(BrokerEvent::Status { status }) if status == "error"));
     }
 
-    // ── build_event_stream ────────────────────────────────────────────────────
-
     fn msg(topic: &str) -> MqttMessage {
         MqttMessage {
             topic: topic.into(),
@@ -994,8 +1004,6 @@ mod tests {
         assert!(matches!(&events[0], BrokerEvent::Status { status } if status == "connecting"));
     }
 
-    // ── html_escape ───────────────────────────────────────────────────────────
-
     #[test]
     fn html_escape_ampersand() {
         assert_eq!(html_escape("a&b"), "a&amp;b");
@@ -1024,8 +1032,6 @@ mod tests {
         );
     }
 
-    // ── truncate_at_char ──────────────────────────────────────────────────────
-
     #[test]
     fn truncate_at_char_ascii_within_limit() {
         assert_eq!(truncate_at_char("hello", 10), "hello");
@@ -1052,8 +1058,6 @@ mod tests {
         assert_eq!(truncate_at_char("", 5), "");
     }
 
-    // ── format_time ───────────────────────────────────────────────────────────
-
     #[test]
     fn format_time_extracts_hhmmsss() {
         assert_eq!(format_time("2026-03-17T23:15:24Z"), "23:15:24");
@@ -1069,8 +1073,6 @@ mod tests {
         // "T" exists but not enough chars after it
         assert_eq!(format_time("20260317T23"), "20260317T23");
     }
-
-    // ── format_entry_value ────────────────────────────────────────────────────
 
     #[test]
     fn format_entry_value_null() {
@@ -1098,8 +1100,6 @@ mod tests {
         let s = format_entry_value(&v);
         assert!(s.contains("\"a\""));
     }
-
-    // ── render_payload_body ───────────────────────────────────────────────────
 
     #[test]
     fn render_payload_body_json_object_produces_dl() {
@@ -1141,8 +1141,6 @@ mod tests {
         );
     }
 
-    // ── render_message_card ───────────────────────────────────────────────────
-
     #[test]
     fn render_message_card_contains_topic() {
         let msg = MqttMessage {
@@ -1177,8 +1175,6 @@ mod tests {
         assert!(html.contains("23:15:24"), "formatted time present");
     }
 
-    // ── render_status_html ────────────────────────────────────────────────────
-
     #[test]
     fn render_status_html_connected() {
         let html = render_status_html("connected");
@@ -1191,8 +1187,6 @@ mod tests {
         let html = render_status_html("err<or>");
         assert!(html.contains("err&lt;or&gt;"));
     }
-
-    // ── publish_route / device_messages_route handler tests ───────────────────
 
     use crate::{
         auth::{AuthConfig, AuthState, Role, SessionData},
@@ -1503,7 +1497,7 @@ struct MqttPage {
 /// GET `/mqtt` — renders the MQTT live-feed page (admin only).
 pub async fn mqtt_page_route(
     user: AdminUser,
-    State(state): State<ServerState>,
+    State(nav_links): State<Arc<[NavLink]>>,
 ) -> Result<Html<String>, Error> {
     let auth_user = Some(AuthUserInfo {
         username: user.0.username.clone(),
@@ -1512,7 +1506,7 @@ pub async fn mqtt_page_route(
     let page = MqttPage {
         version: crate::VERSION,
         auth_user,
-        nav_links: state.nav_links.clone(),
+        nav_links,
     };
     Ok(Html(page.render()?))
 }
@@ -1548,8 +1542,6 @@ fn build_event_stream(
     });
     status_stream.chain(history_stream).chain(live_stream)
 }
-
-// ─── Server-side card rendering ──────────────────────────────────────────────
 
 /// Maximum characters shown in the payload preview (non-object payloads).
 const TRUNCATE_LIMIT: usize = 280;
@@ -1673,9 +1665,8 @@ fn build_sse_stream(
 /// GET `/api/mqtt/stream` — SSE stream of live MQTT messages (admin only).
 pub async fn mqtt_stream_route(
     _user: AdminUser,
-    State(state): State<ServerState>,
+    Mqtt(mqtt): Mqtt,
 ) -> Result<Sse<impl futures::Stream<Item = Result<Event, Infallible>>>, Error> {
-    let mqtt = state.mqtt_state.as_ref().ok_or(Error::MqttNotConfigured)?;
     let rx = mqtt.tx.subscribe();
 
     let current_status = mqtt.status_tx.borrow().clone();
@@ -1683,8 +1674,6 @@ pub async fn mqtt_stream_route(
 
     Ok(Sse::new(build_sse_stream(current_status, backlog, rx)).keep_alive(KeepAlive::default()))
 }
-
-// ─── Publish endpoint ────────────────────────────────────────────────────────
 
 /// Request body for `POST /api/mqtt/publish`.
 #[derive(Debug, Deserialize)]
@@ -1698,10 +1687,9 @@ pub struct MqttPublishRequest {
 /// POST `/api/mqtt/publish` — publish a message to the broker (admin only).
 pub async fn publish_route(
     _user: AdminUser,
-    State(state): State<ServerState>,
+    Mqtt(mqtt): Mqtt,
     Json(req): Json<MqttPublishRequest>,
 ) -> Result<axum::http::StatusCode, Error> {
-    let mqtt = state.mqtt_state.as_ref().ok_or(Error::MqttNotConfigured)?;
     mqtt.publish_client
         .publish(
             &req.topic,
@@ -1714,8 +1702,6 @@ pub async fn publish_route(
     tracing::info!(topic = %req.topic, "published mqtt message");
     Ok(axum::http::StatusCode::NO_CONTENT)
 }
-
-// ─── Device messages panel ───────────────────────────────────────────────────
 
 /// Query parameters for the device messages endpoint.
 #[derive(Debug, Deserialize)]
@@ -1730,11 +1716,9 @@ pub struct DeviceMessagesQuery {
 /// as pre-rendered HTML card fragments (admin only; no DB required).
 pub async fn device_messages_route(
     _user: AdminUser,
-    State(state): State<ServerState>,
+    Mqtt(mqtt): Mqtt,
     Query(params): Query<DeviceMessagesQuery>,
 ) -> Result<Html<String>, Error> {
-    let mqtt = state.mqtt_state.as_ref().ok_or(Error::MqttNotConfigured)?;
-
     let integration = mqtt
         .integrations
         .iter()
@@ -1774,7 +1758,27 @@ pub async fn device_messages_route(
     )))
 }
 
-// ─── Devices page ─────────────────────────────────────────────────────────────
+/// Resolves to the auth DB pool (the devices page tracks device history in
+/// the same Postgres database auth uses), or rejects with
+/// [`Error::MqttNotConfigured`]. In practice this never rejects on its own —
+/// reaching this extractor already means `AdminUser` resolved, which itself
+/// requires auth to be configured — but the type only guarantees a pool
+/// exists once we check.
+pub(crate) struct AuthDb(sqlx::PgPool);
+
+impl<S> FromRequestParts<S> for AuthDb
+where
+    S: Send + Sync,
+    Option<Arc<AuthState>>: FromRef<S>,
+{
+    type Rejection = Error;
+
+    async fn from_request_parts(_parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
+        Option::<Arc<AuthState>>::from_ref(state)
+            .map(|auth| AuthDb(auth.db.clone()))
+            .ok_or(Error::MqttNotConfigured)
+    }
+}
 
 #[derive(Template)]
 #[template(path = "mqtt_devices.html")]
@@ -1788,9 +1792,9 @@ struct MqttDevicesPage {
 /// GET `/mqtt/devices` — MQTT device inventory table (admin only).
 pub async fn mqtt_devices_route(
     user: AdminUser,
-    State(state): State<ServerState>,
+    AuthDb(db): AuthDb,
+    State(nav_links): State<Arc<[NavLink]>>,
 ) -> Result<Html<String>, Error> {
-    let auth = state.auth_state.as_ref().ok_or(Error::MqttNotConfigured)?;
     let auth_user = Some(AuthUserInfo {
         username: user.0.username.clone(),
         role: user.0.role.clone(),
@@ -1804,7 +1808,7 @@ pub async fn mqtt_devices_route(
          FROM mqtt_devices
          ORDER BY integration, device_id",
     )
-    .fetch_all(&auth.db)
+    .fetch_all(&db)
     .await
     .map_err(|e| Error::Database(e.to_string()))?;
 
@@ -1826,19 +1830,16 @@ pub async fn mqtt_devices_route(
         devices,
         auth_user,
         version: crate::VERSION,
-        nav_links: state.nav_links.clone(),
+        nav_links,
     };
     Ok(Html(page.render()?))
 }
 
-// ─── Prometheus metrics endpoint ─────────────────────────────────────────────
-
 /// GET `/metrics` — Prometheus text exposition format (no auth; Prometheus scrapers
 /// can't do cookie auth). Expose only when integrations are configured.
 pub async fn metrics_route(
-    State(state): State<ServerState>,
+    Mqtt(mqtt): Mqtt,
 ) -> Result<([(axum::http::HeaderName, &'static str); 1], String), Error> {
-    let mqtt = state.mqtt_state.as_ref().ok_or(Error::MqttNotConfigured)?;
     let ps = mqtt.prometheus.as_ref().ok_or(Error::MqttNotConfigured)?;
 
     let encoder = prometheus::TextEncoder::new();
