@@ -15,7 +15,8 @@
       "Bash(cargo llvm-cov *)",
       "Bash(just coverage *)",
       "Bash(deno check *)",
-      "Bash(just js-test *)"
+      "Bash(just js-test *)",
+      "Bash(nix flake *)"
     ]
   }
 }
