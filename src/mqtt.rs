@@ -1760,7 +1760,7 @@ pub async fn device_messages_route(
 
 /// Resolves to the auth DB pool (the devices page tracks device history in
 /// the same Postgres database auth uses), or rejects with
-/// [`Error::MqttNotConfigured`]. In practice this never rejects on its own —
+/// [`Error::AuthNotConfigured`]. In practice this never rejects on its own —
 /// reaching this extractor already means `AdminUser` resolved, which itself
 /// requires auth to be configured — but the type only guarantees a pool
 /// exists once we check.
@@ -1776,7 +1776,7 @@ where
     async fn from_request_parts(_parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
         Option::<Arc<AuthState>>::from_ref(state)
             .map(|auth| AuthDb(auth.db.clone()))
-            .ok_or(Error::MqttNotConfigured)
+            .ok_or(Error::AuthNotConfigured)
     }
 }
 
