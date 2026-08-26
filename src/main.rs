@@ -311,7 +311,7 @@ impl ServerState {
                 links.push(NavLink {
                     name: "mqtt".into(),
                     href: "/mqtt".into(),
-                    is_admin: false,
+                    is_admin: true,
                 });
             }
             if has_notes {
@@ -331,12 +331,12 @@ impl ServerState {
             links.push(NavLink {
                 name: "breaker".into(),
                 href: "/breaker".into(),
-                is_admin: false,
+                is_admin: true,
             });
             links.push(NavLink {
                 name: "tailscale".into(),
                 href: "/tailscale".into(),
-                is_admin: false,
+                is_admin: true,
             });
             for peer in &config.peers {
                 links.push(NavLink {
