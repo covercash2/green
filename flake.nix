@@ -148,7 +148,7 @@
 
           outputHashMode = "recursive";
           outputHashAlgo = "sha256";
-          outputHash = "sha256-km152hKHFVoelXhP1odT1Nr80bGs2NVuCuKnlzKocgc=";
+          outputHash = "sha256-+mRCafNyz4bn9UJqFZL2gu71s3UFBvxGNf24zmgODVY=";
 
           unpackPhase = ''
             cp -r $src/. .
