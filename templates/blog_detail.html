@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+
+{% block styles %}
+<link rel="stylesheet" href="/assets/css/blog.css?v={{ version }}">
+{% endblock %}
+
+{% block title %}{{ title }}{% endblock %}
+
+{% block content %}
+<a href="/blog" class="leet-link">&larr; blog</a>
+<div class="blog-meta">
+    <span class="blog-date">{{ date }}</span>
+</div>
+<h1 class="leet-h1">{{ title }}</h1>
+{% if let Some(summary) = summary %}
+<p class="blog-summary">{{ summary }}</p>
+{% endif %}
+<div class="prose blog-detail">
+    {{ content|safe }}
+</div>
+{% endblock %}

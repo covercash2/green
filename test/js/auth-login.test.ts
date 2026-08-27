@@ -64,9 +64,9 @@ test('authenticateDiscoverable returns the provided next URL', async () => {
             if (!url.includes('finish')) return okJson({ publicKey: {}, challenge_id: 'x' });
             return okEmpty();
         },
-        next: '/breaker',
+        next: '/admin/breaker',
     });
-    assert.equal(redirect, '/breaker');
+    assert.equal(redirect, '/admin/breaker');
 });
 
 test('authenticateDiscoverable passes challengeId to finish endpoint', async () => {

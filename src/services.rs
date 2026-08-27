@@ -10,12 +10,12 @@
 //!
 //! Each configured peer (see [`crate::PeerInfo`]) may include an `api_key`.
 //! When present, this instance calls the peer's `/api/services` endpoint and
-//! merges the results into the home page under a labelled group.
+//! merges the results into the admin dashboard under a labelled group.
 //!
 //! ```text
 //! Browser (admin user on A)
 //!     │
-//!     │  GET /  (session cookie for A)
+//!     │  GET /admin  (session cookie for A)
 //!     ▼
 //! Green A  ──── local systemctl ───────────────► Vec<ServiceStatus>
 //!     │
@@ -214,7 +214,7 @@ impl Health {
 /// used by the Askama template.
 ///
 /// `Deserialize` is derived so that the type can be parsed from a peer's JSON
-/// response when aggregating remote services on the home page.
+/// response when aggregating remote services on the admin dashboard.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ServiceStatus {
     /// Unit name as given in config (e.g. `"postgresql"`).
@@ -240,7 +240,7 @@ pub struct ServiceStatus {
 }
 
 /// Service statuses aggregated from one peer instance, shown as a labelled
-/// group below the local services on the home page (admin view only).
+/// group below the local services on the admin dashboard.
 ///
 /// `online: false` means the peer was unreachable, timed out, or returned an
 /// error; in that case `services` is empty and the template shows an "offline"
@@ -509,7 +509,7 @@ fn auth_user_info(user: &AuthUser) -> AuthUserInfo {
     }
 }
 
-/// `GET /services` — service status dashboard (admin only).
+/// `GET /admin/services` — service status dashboard (admin only).
 pub async fn services_route(
     AdminUser(user): AdminUser,
     Systemd(systemd_config): Systemd,
@@ -531,7 +531,7 @@ pub async fn services_route(
 /// (via the [`PEER_AUTH_HEADER`] header + a matching [`ServerState::peer_api_key`]).
 ///
 /// This is the endpoint that other Green instances call when aggregating remote
-/// service status on their own home page.  The [`AdminOrPeer`] extractor handles
+/// service status on their own admin dashboard.  The [`AdminOrPeer`] extractor handles
 /// both authentication paths.
 pub async fn services_api_route(
     _caller: AdminOrPeer,

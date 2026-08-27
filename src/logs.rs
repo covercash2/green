@@ -79,7 +79,7 @@ struct LogsErrorsPage {
     nav_links: Arc<[NavLink]>,
 }
 
-/// GET `/logs/app` — renders the app trace log page (admin only).
+/// GET `/admin/logs/app` — renders the app trace log page (admin only).
 pub async fn logs_app_route(
     user: AdminUser,
     State(nav_links): State<Arc<[NavLink]>>,
@@ -98,7 +98,7 @@ pub async fn logs_app_route(
     ))
 }
 
-/// GET `/logs/errors` — renders the error log page (admin only).
+/// GET `/admin/logs/errors` — renders the error log page (admin only).
 pub async fn logs_errors_route(
     user: AdminUser,
     State(nav_links): State<Arc<[NavLink]>>,
@@ -173,7 +173,7 @@ fn tail_log_stream(path: PathBuf) -> impl Stream<Item = Result<Event, Infallible
     })
 }
 
-/// GET `/api/logs/app/stream` — SSE stream of app trace log lines (admin only).
+/// GET `/admin/api/logs/app/stream` — SSE stream of app trace log lines (admin only).
 pub async fn logs_app_stream_route(
     _user: AdminUser,
     Logs(log_config): Logs,
@@ -181,7 +181,7 @@ pub async fn logs_app_stream_route(
     Ok(Sse::new(tail_log_stream(log_config.app_log)).keep_alive(KeepAlive::default()))
 }
 
-/// GET `/api/logs/errors/stream` — SSE stream of error log lines (admin only).
+/// GET `/admin/api/logs/errors/stream` — SSE stream of error log lines (admin only).
 pub async fn logs_errors_stream_route(
     _user: AdminUser,
     Logs(log_config): Logs,

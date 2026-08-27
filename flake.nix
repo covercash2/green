@@ -354,13 +354,27 @@
               description = "Path to a vault directory containing recipe notes (tagged `recipe` in frontmatter). If null, /recipes routes return 404.";
             };
 
+            blogVaultPath = mkOption {
+              type = types.nullOr types.path;
+              default = null;
+              example = "/var/lib/green/blog";
+              description = "Path to a vault directory containing blog posts (tagged `blog` in frontmatter). If null, /blog routes return 404.";
+            };
+
+            aboutPath = mkOption {
+              type = types.nullOr types.path;
+              default = null;
+              example = "/var/lib/green/about.md";
+              description = "Path to a single Markdown file rendered as the /about page. If null, /about returns 404.";
+            };
+
             peers = mkOption {
               default = [];
               description = ''
                 Remote Green instances linked in the admin nav drawer.
 
                 When a peer has apiKey set, this machine will proxy that peer's
-                /api/services response onto the home page (admin-only). The peer must
+                /api/services response onto the admin dashboard. The peer must
                 have peerApiKey set to the same value in its own configuration.
 
                 Store the actual key value in sops-nix and inject it at runtime via
@@ -412,7 +426,7 @@
 
             systemd = mkOption {
               default = null;
-              description = "Systemd service monitoring configuration. If null, the /services dashboard is disabled.";
+              description = "Systemd service monitoring configuration. If null, the /admin/services dashboard is disabled.";
               type = types.nullOr (types.submodule {
                 options = {
                   units = mkOption {
@@ -557,6 +571,8 @@
               ca_path = "${cfg.caPath}"
               ${lib.optionalString (cfg.vaultPath != null) "vault_path = \"${cfg.vaultPath}\""}
               ${lib.optionalString (cfg.recipeVaultPath != null) "recipe_vault_path = \"${cfg.recipeVaultPath}\""}
+              ${lib.optionalString (cfg.blogVaultPath != null) "blog_vault_path = \"${cfg.blogVaultPath}\""}
+              ${lib.optionalString (cfg.aboutPath != null) "about_path = \"${cfg.aboutPath}\""}
 
               ${lib.concatStringsSep "\n" (lib.mapAttrsToList (k: v: "[routes.${k}]\nurl = \"${v.url}\"\ndescription = \"${v.description}\"") cfg.routes)}
 

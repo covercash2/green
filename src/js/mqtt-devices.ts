@@ -33,18 +33,18 @@ export async function fetchDeviceMessages(
     device: string,
     { fetch: fetchFn = globalThis.fetch }: { fetch?: typeof globalThis.fetch } = {},
 ): Promise<string> {
-    const url = `/api/mqtt/device-messages?integration=${encodeURIComponent(integration)}&device=${encodeURIComponent(device)}`;
+    const url = `/admin/api/mqtt/device-messages?integration=${encodeURIComponent(integration)}&device=${encodeURIComponent(device)}`;
     const resp = await fetchFn(url);
     return resp.text();
 }
 
-/** POST a message to `/api/mqtt/publish`. Returns a typed result. */
+/** POST a message to `/admin/api/mqtt/publish`. Returns a typed result. */
 export async function sendCommand(
     topic: string,
     payload: string,
     { fetch: fetchFn = globalThis.fetch }: { fetch?: typeof globalThis.fetch } = {},
 ): Promise<SendResult> {
-    const resp = await fetchFn('/api/mqtt/publish', {
+    const resp = await fetchFn('/admin/api/mqtt/publish', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ topic, payload }),

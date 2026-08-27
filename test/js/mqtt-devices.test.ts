@@ -40,7 +40,7 @@ test('fetchDeviceMessages builds the correct URL', async () => {
     await fetchDeviceMessages('zigbee2mqtt', '0xABCD', {
         fetch: async (url) => { calledUrl = url as string; return ok(''); },
     });
-    assert.equal(calledUrl, '/api/mqtt/device-messages?integration=zigbee2mqtt&device=0xABCD');
+    assert.equal(calledUrl, '/admin/api/mqtt/device-messages?integration=zigbee2mqtt&device=0xABCD');
 });
 
 test('fetchDeviceMessages URL-encodes integration with spaces', async () => {
@@ -75,7 +75,7 @@ test('fetchDeviceMessages propagates fetch rejection', async () => {
 
 // ── sendCommand ───────────────────────────────────────────────────────────────
 
-test('sendCommand POSTs JSON to /api/mqtt/publish', async () => {
+test('sendCommand POSTs JSON to /admin/api/mqtt/publish', async () => {
     let capturedUrl = '';
     let capturedBody = '';
     await sendCommand('home/light/set', '{"state":"ON"}', {
@@ -85,7 +85,7 @@ test('sendCommand POSTs JSON to /api/mqtt/publish', async () => {
             return { ok: true, text: async () => '', status: 204 };
         },
     });
-    assert.equal(capturedUrl, '/api/mqtt/publish');
+    assert.equal(capturedUrl, '/admin/api/mqtt/publish');
     const body = JSON.parse(capturedBody);
     assert.equal(body.topic, 'home/light/set');
     assert.equal(body.payload, '{"state":"ON"}');

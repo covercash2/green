@@ -160,24 +160,36 @@ The hook runs `just _pre-push-checks` inside `nix develop`, which covers:
 ### HTTP Routes
 The application has two types of routes:
 
-1. **Static Routes** (defined in `Route` enum in main.rs):
-   - `/` - Index page showing all configured routes
+The public surface and the admin surface are deliberately separated: everything homelab-oriented lives under the `/admin` prefix and is gated by `AdminUser`, while `/` and its siblings are safe to show an anonymous visitor.
+
+1. **Public routes** (defined in `Route` enum in main.rs, plus a few raw-string routes in `build_router`):
+   - `/` - Public landing page (hero, blurb, recent blog post teasers, links to `/blog`/`/recipes`/`/about`)
+   - `/blog`, `/blog/{slug}` - Blog post index and detail pages (vault-scanned Markdown, tagged `blog`)
+   - `/about` - About-me page (single Markdown file, rendered once at startup)
+   - `/recipes`, `/recipes/{slug}` - Recipe vault pages (vault-scanned Markdown, tagged `recipe`)
+   - `/notes`, `/notes/{slug}` - D&D campaign notes vault pages (public but unlisted — not linked from the landing page, but not admin-gated either, since non-admin players need it)
+   - `/qr`, `/api/qr` - QR code generator (unauthenticated; generic public utility, not homelab info)
    - `/api/ca` - Returns the CA certificate content
    - `/healthcheck` - Health check endpoint
+   - `/metrics` - Prometheus scrape endpoint (unauthenticated)
    - `/assets` - Static file serving
    - `/auth/login`, `/auth/register` - Passkey auth pages
    - `/auth/recover` - Account recovery via ntfy OTC
-   - `/breaker` - Breaker box panel (admin only)
-   - `/tailscale` - Tailscale peer list (admin only)
-   - `/notes`, `/notes/{slug}` - Notes vault pages
-   - `/mqtt` - Live MQTT message feed (admin only; SSE stream)
-   - `/mqtt/devices` - Device inventory table (admin only)
-   - `/metrics` - Prometheus scrape endpoint (unauthenticated)
+   - `/webhook` - GitHub deployment webhook (HMAC-verified, not admin-gated)
 
-2. **Dynamic Routes** (configured via TOML):
+2. **Admin routes** (admin only, all under `/admin`):
+   - `/admin` - Consolidated dashboard: local systemd services, peer service groups, and every homelab-infra link (config-driven `[routes.*]` entries plus breaker/tailscale/mqtt/logs)
+   - `/admin/breaker`, `/admin/api/breaker/{key}` - Breaker box panel
+   - `/admin/tailscale` - Tailscale peer list
+   - `/admin/mqtt`, `/admin/mqtt/devices` - Live MQTT feed and device inventory (SSE stream at `/admin/api/mqtt/stream`)
+   - `/admin/logs/app`, `/admin/logs/errors` - Dev log viewers (SSE streams under `/admin/api/logs/*`)
+   - `/admin/services` - Systemd service status dashboard (browser page)
+   - `/api/services` - JSON API for the above; **not** under `/admin` because it's called machine-to-machine between peer Green instances (`AdminOrPeer` extractor: admin session cookie or shared `X-Green-Api-Key`) and the URL suffix is hardcoded per-peer, not configurable — renaming it would require redeploying every peer simultaneously
+
+3. **Dynamic routes** (configured via TOML):
    - Defined in config.toml under `[routes.*]` sections
    - Each route has `url` and `description` fields
-   - Displayed on the index page as links
+   - Displayed on the admin dashboard as links (not the public landing page)
 
 ### Module Structure
 
@@ -194,7 +206,10 @@ The application has two types of routes:
   - Recovery: generates a 6-char A–Z0–9 OTC (rejection-sampling, no modulo bias), stores it with a 10-minute TTL, sends it via ntfy, then verifies atomically and invalidates all existing sessions
 
 - `route.rs` - Dynamic route types (`Routes`, `RouteInfo`)
-- `index.rs` - Index page template and handler
+- `index.rs` - Public landing page template and handler
+- `admin.rs` - Admin dashboard template and handler (moved off the landing page)
+- `blog/mod.rs` - Blog vault scanning and routes (mirrors `notes/recipes.rs`)
+- `about.rs` - About-me page (single Markdown file, rendered once at startup)
 - `error.rs` - Application error types with `IntoResponse` implementation
 - `io.rs` - File I/O utilities (async file reading, TOML loading)
 - `notes.rs` - Notes vault scanning, slug types, secret redaction
@@ -240,7 +255,7 @@ name = "Home Assistant"   # optional display name; defaults to first literal seg
 
 `GREEN_MQTT_PASSWORD` env var sets the broker password (same injection mechanism as `GREEN_DB_URL`).
 
-The dev config (`config.dev.toml`) has `vault_path`, real `rp_origin`, and `ntfy_url` for local development. The plaintext `db_url` is acceptable in dev; production uses the `GREEN_DB_URL` env var via sops-nix.
+The dev config (`config.dev.toml`) has `vault_path`, `recipe_vault_path`, `blog_vault_path` (all pointing at `fixtures/vault`), `about_path`, real `rp_origin`, and `ntfy_url` for local development. The plaintext `db_url` is acceptable in dev; production uses the `GREEN_DB_URL` env var via sops-nix.
 
 ### Template Rendering
 

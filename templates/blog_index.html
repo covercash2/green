@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+
+{% block styles %}
+<link rel="stylesheet" href="/assets/css/blog.css?v={{ version }}">
+{% endblock %}
+
+{% block title %}blog{% endblock %}
+
+{% block content %}
+<a href="/" class="leet-link">&larr; back</a>
+<h1 class="leet-h1">blog</h1>
+
+{% if entries.is_empty() %}
+<p class="blog-empty">no posts yet</p>
+{% else %}
+<ul class="list-group">
+    {% for entry in entries %}
+    <li class="leet-list-item">
+        <a href="/blog/{{ entry.slug }}" class="leet-link">{{ entry.title }}</a>
+        <span class="blog-date">{{ entry.date }}</span>
+        {% if let Some(summary) = entry.summary %}
+        <div class="leet-description">{{ summary }}</div>
+        {% endif %}
+    </li>
+    {% endfor %}
+</ul>
+{% endif %}
+{% endblock %}

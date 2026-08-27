@@ -80,7 +80,7 @@ impl PartialEq<&str> for Slug {
 /// - `tags:\n  - NPC\n  - world`  — block sequence
 /// - `tags: NPC`  — bare string (single tag)
 /// - `tags: "NPC, world"`  — comma-delimited string
-fn deserialize_tags<'de, D>(deserializer: D) -> Result<Vec<String>, D::Error>
+pub(crate) fn deserialize_tags<'de, D>(deserializer: D) -> Result<Vec<String>, D::Error>
 where
     D: serde::Deserializer<'de>,
 {

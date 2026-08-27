@@ -216,7 +216,7 @@ if (typeof document !== 'undefined') {
         });
     });
 
-    const es = new EventSource('/api/mqtt/stream');
+    const es = new EventSource('/admin/api/mqtt/stream');
 
     es.addEventListener('broker', (e) => {
         if (statusBar) statusBar.innerHTML = (e as MessageEvent).data;
