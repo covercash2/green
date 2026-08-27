@@ -1,7 +1,7 @@
 use axum::{http::StatusCode, response::IntoResponse};
 use tracing_subscriber::filter::ParseError;
 
-use crate::{breaker_detail, notes};
+use crate::{blog, breaker_detail, notes};
 
 #[derive(Debug, thiserror::Error)]
 #[error("error running green")]
@@ -18,6 +18,11 @@ pub enum Error {
     RecipeStore {
         #[from]
         source: notes::recipes::RecipeStoreError,
+    },
+    #[error("invalid blog vault: {source}")]
+    BlogStore {
+        #[from]
+        source: blog::BlogStoreError,
     },
     #[error("unable to build HTTP client: {0}")]
     HttpClientBuild(reqwest::Error),
@@ -104,6 +109,12 @@ pub enum Error {
 
     #[error("auth not configured")]
     AuthNotConfigured,
+
+    #[error("blog not configured")]
+    BlogNotConfigured,
+
+    #[error("about page not configured")]
+    AboutNotConfigured,
 }
 
 impl IntoResponse for Error {
@@ -124,7 +135,9 @@ impl IntoResponse for Error {
             | Error::RecipesNotConfigured
             | Error::NotesNotConfigured
             | Error::NotesVaultLoading
-            | Error::AuthNotConfigured => StatusCode::NOT_FOUND,
+            | Error::AuthNotConfigured
+            | Error::BlogNotConfigured
+            | Error::AboutNotConfigured => StatusCode::NOT_FOUND,
             Error::EnvLevel { .. }
             | Error::HttpClientBuild(_)
             | Error::TemplateRender { .. }
@@ -137,7 +150,8 @@ impl IntoResponse for Error {
             | Error::BreakerStore { .. }
             | Error::Io(_)
             | Error::NotesStore { .. }
-            | Error::RecipeStore { .. } => StatusCode::INTERNAL_SERVER_ERROR,
+            | Error::RecipeStore { .. }
+            | Error::BlogStore { .. } => StatusCode::INTERNAL_SERVER_ERROR,
         };
 
         // Log server faults at error level; expected client/request errors at warn.
@@ -205,6 +219,16 @@ mod tests {
     #[test]
     fn auth_not_configured_is_404() {
         assert_eq!(status(Error::AuthNotConfigured), StatusCode::NOT_FOUND);
+    }
+
+    #[test]
+    fn blog_not_configured_is_404() {
+        assert_eq!(status(Error::BlogNotConfigured), StatusCode::NOT_FOUND);
+    }
+
+    #[test]
+    fn about_not_configured_is_404() {
+        assert_eq!(status(Error::AboutNotConfigured), StatusCode::NOT_FOUND);
     }
 
     #[test]

@@ -1,0 +1,26 @@
+/* --- Blog --- */
+
+.blog-empty { opacity: 0.5; font-size: 0.9rem; }
+
+.blog-date {
+    font-size: 0.8rem;
+    color: var(--color-fg-dim);
+    margin-left: 0.5rem;
+}
+
+.blog-meta {
+    display: flex;
+    gap: 0.75rem;
+    margin: 0.75rem 0 0.5rem;
+    font-size: 0.85rem;
+    color: var(--color-fg-dim);
+}
+
+.blog-summary {
+    max-width: 72ch;
+    color: var(--color-fg-dim);
+    font-style: italic;
+    margin: 0.5rem 0 1rem;
+}
+
+.blog-detail { max-width: 72ch; margin-top: 0.5rem; }

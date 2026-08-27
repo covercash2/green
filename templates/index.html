@@ -2,7 +2,7 @@
 
 {% block styles %}
 <link rel="stylesheet" href="/assets/css/index.css?v={{ version }}">
-<link rel="stylesheet" href="/assets/css/services.css?v={{ version }}">
+<link rel="stylesheet" href="/assets/css/blog.css?v={{ version }}">
 {% endblock %}
 
 {% block title %}green{% endblock %}
@@ -12,104 +12,37 @@
 <img src="{{ url }}" alt="logo" class="index-logo">
 {% endif %}
 
-{% if !services.is_empty() %}
-<h1 class="leet-h1">services</h1>
-<div class="svc-toolbar">
-    <span class="svc-count">{{ services.len() }} units</span>
-    <span class="svc-updated">updated <span id="svc-last-updated">now</span></span>
-    <button class="leet-btn svc-refresh-btn" id="svc-refresh">refresh</button>
-</div>
-<div class="svc-grid" id="svc-grid">
-{% for svc in services %}
-<div class="svc-card {{ svc.health.css_class() }}">
-    <div class="svc-card-header">
-        {% let icon = svc.icon_url.as_deref().unwrap_or("/assets/img/service.svg") %}
-        <img src="{{ icon }}" alt="" class="svc-icon" aria-hidden="true" width="18" height="18">
-        {% if let Some(url) = svc.url.as_ref() %}
-        <a href="{{ url }}" class="svc-name leet-link">{{ svc.name }}</a>
-        {% else %}
-        <span class="svc-name">{{ svc.name }}</span>
-        {% endif %}
-        <span class="svc-badge {{ svc.health.css_class() }}">{{ svc.health.label() }}</span>
-    </div>
-    {% if !svc.description.is_empty() %}
-    <div class="svc-description">{{ svc.description }}</div>
-    {% endif %}
-    <div class="svc-fields">
-        <span class="svc-key">state</span>
-        <span class="svc-val">{{ svc.active_state }}/{{ svc.sub_state }}</span>
-        {% if let Some(pid) = svc.pid %}
-        <span class="svc-key">pid</span>
-        <span class="svc-val">{{ pid }}</span>
-        {% endif %}
-        {% if let Some(since) = svc.since.as_ref() %}
-        <span class="svc-key">since</span>
-        <span class="svc-val svc-timestamp">{{ since }}</span>
-        {% endif %}
-    </div>
-</div>
-{% endfor %}
-</div>
-{% endif %}
+<h1 class="leet-h1">green</h1>
+<p class="index-blurb">A small corner of the internet for recipes, notes, and the occasional post.</p>
 
-{% for group in peer_groups %}
-<h2 class="svc-peer-heading">
-    <a href="{{ group.url }}" class="leet-link">{{ group.name }}</a>
-    {% if !group.online %}<span class="svc-peer-offline">offline</span>{% endif %}
-</h2>
-{% if group.online %}
-<div class="svc-grid svc-peer-grid">
-{% for svc in group.services %}
-<div class="svc-card {{ svc.health.css_class() }}">
-    <div class="svc-card-header">
-        {% let icon = svc.icon_url.as_deref().unwrap_or("/assets/img/service.svg") %}
-        <img src="{{ icon }}" alt="" class="svc-icon" aria-hidden="true" width="18" height="18">
-        {% if let Some(url) = svc.url.as_ref() %}
-        <a href="{{ url }}" class="svc-name leet-link">{{ svc.name }}</a>
-        {% else %}
-        <span class="svc-name">{{ svc.name }}</span>
-        {% endif %}
-        <span class="svc-badge {{ svc.health.css_class() }}">{{ svc.health.label() }}</span>
-    </div>
-    {% if !svc.description.is_empty() %}
-    <div class="svc-description">{{ svc.description }}</div>
-    {% endif %}
-    <div class="svc-fields">
-        <span class="svc-key">state</span>
-        <span class="svc-val">{{ svc.active_state }}/{{ svc.sub_state }}</span>
-        {% if let Some(pid) = svc.pid %}
-        <span class="svc-key">pid</span>
-        <span class="svc-val">{{ pid }}</span>
-        {% endif %}
-        {% if let Some(since) = svc.since.as_ref() %}
-        <span class="svc-key">since</span>
-        <span class="svc-val svc-timestamp">{{ since }}</span>
-        {% endif %}
-    </div>
-</div>
-{% endfor %}
-</div>
-{% endif %}
-{% endfor %}
-
-{% if !routes.is_empty() %}
-<h1 class="leet-h1">routes</h1>
 <ul class="list-group">
-    {% for entry in routes %}
+    {% if has_recipes %}
     <li class="leet-list-item">
-        {% if let Some(icon) = entry.icon_url.as_ref() %}
-        <img src="{{ icon }}" alt="" class="route-icon" aria-hidden="true" width="20" height="20">
+        <a href="/recipes" class="leet-link">recipes</a>
+        <div class="leet-description">a collection of recipes</div>
+    </li>
+    {% endif %}
+    {% if has_about %}
+    <li class="leet-list-item">
+        <a href="/about" class="leet-link">about</a>
+        <div class="leet-description">who I am</div>
+    </li>
+    {% endif %}
+</ul>
+
+{% if !recent_posts.is_empty() %}
+<h1 class="leet-h1">recent posts</h1>
+<ul class="list-group">
+    {% for entry in recent_posts %}
+    <li class="leet-list-item">
+        <a href="/blog/{{ entry.slug }}" class="leet-link">{{ entry.title }}</a>
+        <span class="blog-date">{{ entry.date }}</span>
+        {% if let Some(summary) = entry.summary %}
+        <div class="leet-description">{{ summary }}</div>
         {% endif %}
-        <a href="{{ entry.href }}" class="leet-link">{{ entry.display_name() }}</a>
-        <div class="leet-description">{{ entry.description }}</div>
     </li>
     {% endfor %}
 </ul>
-{% endif %}
-{% endblock %}
-
-{% block scripts %}
-{% if !services.is_empty() %}
-<script type="module" src="/assets/js/services.js?v={{ version }}"></script>
+<a href="/blog" class="leet-link">all posts &rarr;</a>
 {% endif %}
 {% endblock %}

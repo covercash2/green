@@ -930,6 +930,7 @@ mod tests {
 
     async fn state_with_auth() -> ServerState {
         use crate::{
+            admin::AdminDashboard,
             breaker::BreakerContent,
             breaker_detail::{BreakerData, BreakerDetailStore, BreakerStore},
             index::Index,
@@ -953,15 +954,18 @@ mod tests {
         let store = Arc::new(BreakerStore::from_data(data).unwrap());
         let breaker_content = Arc::new(BreakerContent::new(store.as_ref()));
         let breaker_detail_store: Arc<dyn BreakerDetailStore> = store;
-        let index = Index::new(
-            Routes::default(),
-            std::iter::empty::<crate::index::OptionalEntry>(),
-            &Default::default(),
-            None,
-            Arc::new([]),
-        )
-        .await
-        .unwrap();
+        let index = Index::new(None, Arc::new([]), false, false);
+        let admin_dashboard = Arc::new(
+            AdminDashboard::new(
+                Routes::default(),
+                std::iter::empty::<crate::admin::OptionalEntry>(),
+                &Default::default(),
+                None,
+                Arc::new([]),
+            )
+            .await
+            .unwrap(),
+        );
 
         ServerState {
             ultron: crate::ultron::Ultron::new(reqwest::Client::new(), "test".into()).into(),
@@ -969,9 +973,12 @@ mod tests {
             breaker_content,
             breaker_detail_store,
             index,
+            admin_dashboard,
             tailscale_socket: Arc::from(Path::new("/tmp/fake.sock")),
             notes_store: None,
             recipes_store: None,
+            blog_store: None,
+            about_content: None,
             auth_state: Some(Arc::new(auth_state)),
             mqtt_state: None,
             log_config: None,

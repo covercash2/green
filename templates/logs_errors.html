@@ -8,8 +8,8 @@
 
 {% block content %}
 <div class="leet-page-nav">
-    <a href="/logs/app" class="leet-link">&larr; app log</a>
-    <a href="/" class="leet-link">home &rarr;</a>
+    <a href="/admin/logs/app" class="leet-link">&larr; app log</a>
+    <a href="/admin" class="leet-link">admin &rarr;</a>
 </div>
 <h1 class="leet-h1">errors log</h1>
 
@@ -20,7 +20,7 @@
     </label>
 </div>
 
-<div id="log-feed" class="log-feed" data-stream="/api/logs/errors/stream"></div>
+<div id="log-feed" class="log-feed" data-stream="/admin/api/logs/errors/stream"></div>
 {% endblock %}
 
 {% block scripts %}

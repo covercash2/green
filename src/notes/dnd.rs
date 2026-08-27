@@ -435,6 +435,7 @@ mod tests {
 
     async fn minimal_state(notes_store: Option<Arc<NotesStore>>) -> ServerState {
         use crate::{
+            admin::AdminDashboard,
             breaker::BreakerContent,
             breaker_detail::{BreakerData, BreakerDetailStore, BreakerStore},
             index::Index,
@@ -449,21 +450,20 @@ mod tests {
         let store = Arc::new(BreakerStore::from_data(data).unwrap());
         let breaker_detail_store: Arc<dyn BreakerDetailStore> = store.clone();
         let breaker_content = Arc::new(BreakerContent::new(store.as_ref()));
-        let has_notes = notes_store.is_some();
         let notes_store =
             notes_store.map(|s| NoteVault::from_store_for_test(PathBuf::from("fixtures/vault"), s));
-        let entries = has_notes
-            .then_some(crate::index::OptionalEntry::Notes)
-            .into_iter();
-        let index = Index::new(
-            Routes::default(),
-            entries,
-            &HashSet::new(),
-            None,
-            Arc::new([]),
-        )
-        .await
-        .unwrap();
+        let index = Index::new(None, Arc::new([]), false, false);
+        let admin_dashboard = Arc::new(
+            AdminDashboard::new(
+                Routes::default(),
+                std::iter::empty::<crate::admin::OptionalEntry>(),
+                &HashSet::new(),
+                None,
+                Arc::new([]),
+            )
+            .await
+            .unwrap(),
+        );
 
         ServerState {
             ultron: crate::ultron::Ultron::new(reqwest::Client::new(), "test".into()).into(),
@@ -471,9 +471,12 @@ mod tests {
             breaker_content,
             breaker_detail_store,
             index,
+            admin_dashboard,
             tailscale_socket: Arc::from(Path::new("/tmp/fake.sock")),
             notes_store,
             recipes_store: None,
+            blog_store: None,
+            about_content: None,
             auth_state: None,
             mqtt_state: None,
             log_config: None,

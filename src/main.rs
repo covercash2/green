@@ -39,12 +39,16 @@ use serde::{Deserialize, Serialize};
 use tower_http::{services::ServeDir, trace::TraceLayer};
 
 use crate::{
+    admin::AdminDashboard,
     error::Error,
     index::{Index, NavLink},
     ultron::Ultron,
 };
 
+mod about;
+mod admin;
 mod auth;
+mod blog;
 mod breaker;
 mod breaker_detail;
 mod deployments;
@@ -90,9 +94,14 @@ pub enum Route {
     #[serde(rename = "/healthcheck")]
     #[strum(serialize = "/healthcheck")]
     HealthCheck,
+    /// Consolidated admin dashboard (admin only).
+    #[serde(rename = "/admin")]
+    #[strum(serialize = "/admin")]
+    Admin,
+
     /// Electrical breaker-box panel (admin only).
-    #[serde(rename = "/breaker")]
-    #[strum(serialize = "/breaker")]
+    #[serde(rename = "/admin/breaker")]
+    #[strum(serialize = "/admin/breaker")]
     BreakerBox,
 
     /// QR-code generation API endpoint.
@@ -106,8 +115,8 @@ pub enum Route {
     QrPage,
 
     /// Tailscale peer list (admin only).
-    #[serde(rename = "/tailscale")]
-    #[strum(serialize = "/tailscale")]
+    #[serde(rename = "/admin/tailscale")]
+    #[strum(serialize = "/admin/tailscale")]
     Tailscale,
 
     /// D&D campaign notes vault index.
@@ -131,28 +140,28 @@ pub enum Route {
     AuthRegister,
 
     /// MQTT live-feed page (admin only).
-    #[serde(rename = "/mqtt")]
-    #[strum(serialize = "/mqtt")]
+    #[serde(rename = "/admin/mqtt")]
+    #[strum(serialize = "/admin/mqtt")]
     Mqtt,
 
     /// SSE stream of live MQTT messages (admin only).
-    #[serde(rename = "/api/mqtt/stream")]
-    #[strum(serialize = "/api/mqtt/stream")]
+    #[serde(rename = "/admin/api/mqtt/stream")]
+    #[strum(serialize = "/admin/api/mqtt/stream")]
     MqttStream,
 
     /// Recent ring-buffer messages for a single device (admin only; used by devices panel).
-    #[serde(rename = "/api/mqtt/device-messages")]
-    #[strum(serialize = "/api/mqtt/device-messages")]
+    #[serde(rename = "/admin/api/mqtt/device-messages")]
+    #[strum(serialize = "/admin/api/mqtt/device-messages")]
     MqttDeviceMessages,
 
     /// Publish an outbound message to the broker (admin only).
-    #[serde(rename = "/api/mqtt/publish")]
-    #[strum(serialize = "/api/mqtt/publish")]
+    #[serde(rename = "/admin/api/mqtt/publish")]
+    #[strum(serialize = "/admin/api/mqtt/publish")]
     MqttPublish,
 
     /// MQTT device inventory page (admin only).
-    #[serde(rename = "/mqtt/devices")]
-    #[strum(serialize = "/mqtt/devices")]
+    #[serde(rename = "/admin/mqtt/devices")]
+    #[strum(serialize = "/admin/mqtt/devices")]
     MqttDevices,
 
     /// Prometheus metrics scrape endpoint (unauthenticated; internal only).
@@ -161,28 +170,28 @@ pub enum Route {
     Metrics,
 
     /// App trace log viewer page (admin only; dev only).
-    #[serde(rename = "/logs/app")]
-    #[strum(serialize = "/logs/app")]
+    #[serde(rename = "/admin/logs/app")]
+    #[strum(serialize = "/admin/logs/app")]
     LogsApp,
 
     /// Error / build log viewer page (admin only; dev only).
-    #[serde(rename = "/logs/errors")]
-    #[strum(serialize = "/logs/errors")]
+    #[serde(rename = "/admin/logs/errors")]
+    #[strum(serialize = "/admin/logs/errors")]
     LogsErrors,
 
     /// SSE stream of app trace log lines (admin only; dev only).
-    #[serde(rename = "/api/logs/app/stream")]
-    #[strum(serialize = "/api/logs/app/stream")]
+    #[serde(rename = "/admin/api/logs/app/stream")]
+    #[strum(serialize = "/admin/api/logs/app/stream")]
     LogsAppStream,
 
     /// SSE stream of error log lines (admin only; dev only).
-    #[serde(rename = "/api/logs/errors/stream")]
-    #[strum(serialize = "/api/logs/errors/stream")]
+    #[serde(rename = "/admin/api/logs/errors/stream")]
+    #[strum(serialize = "/admin/api/logs/errors/stream")]
     LogsErrorsStream,
 
     /// Systemd service status dashboard (admin only).
-    #[serde(rename = "/services")]
-    #[strum(serialize = "/services")]
+    #[serde(rename = "/admin/services")]
+    #[strum(serialize = "/admin/services")]
     Services,
 
     /// JSON API returning current status of all monitored units (admin only).
@@ -211,6 +220,8 @@ pub struct ServerState {
     pub breaker_detail_store: Arc<dyn BreakerDetailStore>,
     /// Pre-rendered index page (cloned and augmented per request with `auth_user`).
     pub index: Index,
+    /// Pre-rendered admin dashboard (cloned and augmented per request).
+    pub admin_dashboard: Arc<AdminDashboard>,
     /// Path to the Tailscale Unix socket.
     pub tailscale_socket: Arc<Path>,
     /// Notes vault holder, or `None` if `vault_path` is not configured.
@@ -218,6 +229,10 @@ pub struct ServerState {
     pub notes_store: Option<notes::NoteVault>,
     /// Scanned recipe vault, or `None` if `recipe_vault_path` is not configured.
     pub recipes_store: Option<Arc<notes::recipes::RecipeStore>>,
+    /// Scanned blog vault, or `None` if `blog_vault_path` is not configured.
+    pub blog_store: Option<Arc<blog::BlogStore>>,
+    /// Pre-rendered about-me content, or `None` if `about_path` is not configured.
+    pub about_content: Option<Arc<about::AboutContent>>,
     /// WebAuthn authentication state, or `None` if auth is not configured.
     pub auth_state: Option<Arc<auth::AuthState>>,
     /// MQTT broadcast state, or `None` if mqtt is not configured.
@@ -288,8 +303,27 @@ impl ServerState {
             None
         };
 
+        let blog_store = if let Some(ref bvp) = config.blog_vault_path {
+            let bvp = bvp.clone();
+            let store = tokio::task::spawn_blocking(move || blog::BlogStore::scan(&bvp))
+                .await
+                .expect("blog scan task panicked")?;
+            Some(Arc::new(store))
+        } else {
+            None
+        };
+
+        let about_content = if let Some(ref ap) = config.about_path {
+            let markdown = read_file(ap).await?;
+            Some(Arc::new(about::AboutContent::new(&markdown)))
+        } else {
+            None
+        };
+
         let has_notes = notes_store.is_some();
         let has_recipes = recipes_store.is_some();
+        let has_blog = blog_store.is_some();
+        let has_about = about_content.is_some();
         let has_mqtt = config.mqtt.is_some();
         let has_mqtt_devices = config
             .mqtt
@@ -307,13 +341,6 @@ impl ServerState {
                 href: "/".into(),
                 is_admin: false,
             }];
-            if has_mqtt {
-                links.push(NavLink {
-                    name: "mqtt".into(),
-                    href: "/mqtt".into(),
-                    is_admin: true,
-                });
-            }
             if has_notes {
                 links.push(NavLink {
                     name: "notes".into(),
@@ -328,14 +355,23 @@ impl ServerState {
                     is_admin: false,
                 });
             }
+            if has_blog {
+                links.push(NavLink {
+                    name: "blog".into(),
+                    href: "/blog".into(),
+                    is_admin: false,
+                });
+            }
+            if has_about {
+                links.push(NavLink {
+                    name: "about".into(),
+                    href: "/about".into(),
+                    is_admin: false,
+                });
+            }
             links.push(NavLink {
-                name: "breaker".into(),
-                href: "/breaker".into(),
-                is_admin: true,
-            });
-            links.push(NavLink {
-                name: "tailscale".into(),
-                href: "/tailscale".into(),
+                name: "admin".into(),
+                href: "/admin".into(),
                 is_admin: true,
             });
             for peer in &config.peers {
@@ -347,23 +383,29 @@ impl ServerState {
             }
             links.into()
         };
-        let optional_entries = [
-            has_notes.then_some(index::OptionalEntry::Notes),
-            has_recipes.then_some(index::OptionalEntry::Recipes),
-            has_mqtt.then_some(index::OptionalEntry::Mqtt),
-            has_mqtt_devices.then_some(index::OptionalEntry::MqttDevices),
-            has_logs.then_some(index::OptionalEntry::Logs),
+        let admin_optional_entries = [
+            has_mqtt.then_some(admin::OptionalEntry::Mqtt),
+            has_mqtt_devices.then_some(admin::OptionalEntry::MqttDevices),
+            has_logs.then_some(admin::OptionalEntry::Logs),
         ]
         .into_iter()
         .flatten();
+        let admin_dashboard = Arc::new(
+            AdminDashboard::new(
+                config.routes.clone(),
+                admin_optional_entries,
+                &service_urls,
+                config.logo_url.clone(),
+                nav_links.clone(),
+            )
+            .await?,
+        );
         let index = Index::new(
-            config.routes.clone(),
-            optional_entries,
-            &service_urls,
             config.logo_url.clone(),
             nav_links.clone(),
-        )
-        .await?;
+            has_recipes,
+            has_about,
+        );
 
         let client = reqwest::ClientBuilder::new()
             .timeout(Duration::from_secs(10))
@@ -460,9 +502,12 @@ impl ServerState {
             breaker_content,
             breaker_detail_store: store,
             index,
+            admin_dashboard,
             tailscale_socket: Arc::from(config.tailscale_socket.as_path()),
             notes_store,
             recipes_store,
+            blog_store,
+            about_content,
             auth_state,
             mqtt_state,
             log_config: config.log_config.clone(),
@@ -485,8 +530,12 @@ fn build_router(state: ServerState) -> axum::Router {
         .route(Route::Home.as_str(), get(index::index))
         .route(Route::Certificates.as_str(), get(ca_route))
         .route(Route::HealthCheck.as_str(), get(health_check))
+        .route(Route::Admin.as_str(), get(admin::admin_route))
         .route(Route::BreakerBox.as_str(), get(breaker::breaker_route))
-        .route("/api/breaker/{key}", get(breaker::breaker_detail_route))
+        .route(
+            "/admin/api/breaker/{key}",
+            get(breaker::breaker_detail_route),
+        )
         .route(Route::Qr.as_str(), axum::routing::post(qr::qr_route))
         .route(Route::QrPage.as_str(), get(qr::qr_page_route))
         .route(Route::Tailscale.as_str(), get(tailscale::tailscale_route))
@@ -495,6 +544,9 @@ fn build_router(state: ServerState) -> axum::Router {
         .route(Route::NotesRefresh.as_str(), axum::routing::post(notes::dnd::notes_refresh_route))
         .route("/recipes", get(notes::recipes::recipes_index_route))
         .route("/recipes/{slug}", get(notes::recipes::recipes_detail_route))
+        .route("/blog", get(blog::blog_index_route))
+        .route("/blog/{slug}", get(blog::blog_detail_route))
+        .route("/about", get(about::about_route))
         .route(Route::AuthLogin.as_str(), get(auth::login_page))
         .route(Route::AuthRegister.as_str(), get(auth::register_page))
         .route("/auth/register/challenge", axum::routing::post(auth::start_registration))
@@ -612,6 +664,12 @@ pub struct Config {
     /// Optional path to the recipe vault directory (Obsidian-style, notes tagged `recipe`).
     #[serde(default)]
     pub recipe_vault_path: Option<PathBuf>,
+    /// Optional path to the blog vault directory (Obsidian-style, notes tagged `blog`).
+    #[serde(default)]
+    pub blog_vault_path: Option<PathBuf>,
+    /// Optional path to a single Markdown file rendered as the about-me page.
+    #[serde(default)]
+    pub about_path: Option<PathBuf>,
     /// WebAuthn / passkey auth configuration. If absent, auth is disabled.
     #[serde(default)]
     pub auth: Option<auth::AuthConfig>,
@@ -754,6 +812,7 @@ pub(crate) mod tests {
     /// result and set the relevant field.
     pub(crate) async fn minimal_server_state() -> ServerState {
         use crate::{
+            admin::AdminDashboard,
             breaker::BreakerContent,
             breaker_detail::{BreakerData, BreakerDetailStore, BreakerStore},
             index::Index,
@@ -769,15 +828,18 @@ pub(crate) mod tests {
         let store = Arc::new(BreakerStore::from_data(data).unwrap());
         let breaker_detail_store: Arc<dyn BreakerDetailStore> = store.clone();
         let breaker_content = Arc::new(BreakerContent::new(store.as_ref()));
-        let index = Index::new(
-            Routes::default(),
-            std::iter::empty::<index::OptionalEntry>(),
-            &HashSet::new(),
-            None,
-            Arc::new([]),
-        )
-        .await
-        .unwrap();
+        let index = Index::new(None, Arc::new([]), false, false);
+        let admin_dashboard = Arc::new(
+            AdminDashboard::new(
+                Routes::default(),
+                std::iter::empty::<admin::OptionalEntry>(),
+                &HashSet::new(),
+                None,
+                Arc::new([]),
+            )
+            .await
+            .unwrap(),
+        );
 
         ServerState {
             ultron: Ultron::new(reqwest::Client::new(), "test".into()).into(),
@@ -785,9 +847,12 @@ pub(crate) mod tests {
             breaker_content,
             breaker_detail_store,
             index,
+            admin_dashboard,
             tailscale_socket: Arc::from(Path::new("/tmp/fake.sock")),
             notes_store: None,
             recipes_store: None,
+            blog_store: None,
+            about_content: None,
             auth_state: None,
             mqtt_state: None,
             log_config: None,
@@ -797,6 +862,47 @@ pub(crate) mod tests {
             http_client: reqwest::Client::new(),
             peer_api_key: None,
             webhook_secret: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn build_router_registers_admin_prefix_and_retires_old_paths() {
+        use axum::{body::Body, http::Request};
+        use tower::ServiceExt;
+
+        // build_router() panics on route-registration conflicts, so a
+        // successful build already catches duplicate/typo'd route strings.
+        let app = build_router(minimal_server_state().await);
+
+        let get = |uri: &'static str| Request::builder().uri(uri).body(Body::empty()).unwrap();
+
+        let res = app.clone().oneshot(get("/")).await.unwrap();
+        assert_eq!(res.status(), axum::http::StatusCode::OK, "landing page");
+
+        // Old top-level admin paths must no longer be registered.
+        for path in ["/breaker", "/tailscale", "/mqtt", "/services", "/logs/app"] {
+            let res = app.clone().oneshot(get(path)).await.unwrap();
+            assert_eq!(
+                res.status(),
+                axum::http::StatusCode::NOT_FOUND,
+                "{path} should not be routed anymore"
+            );
+        }
+
+        // New /admin/* paths must be registered (not 404 — whatever auth
+        // rejection they return is a different, already-tested concern).
+        for path in [
+            "/admin",
+            "/admin/breaker",
+            "/admin/tailscale",
+            "/admin/services",
+        ] {
+            let res = app.clone().oneshot(get(path)).await.unwrap();
+            assert_ne!(
+                res.status(),
+                axum::http::StatusCode::NOT_FOUND,
+                "{path} should be routed"
+            );
         }
     }
 

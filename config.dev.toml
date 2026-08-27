@@ -4,6 +4,8 @@ ca_path = "fixtures/testCA.pem"
 log_level = "info,sqlx=warn,green=debug"
 vault_path = "fixtures/vault"
 recipe_vault_path = "fixtures/vault"
+blog_vault_path = "fixtures/vault"
+about_path = "fixtures/about.md"
 
 [log_config]
 app_log = "logs/logs.ndjson"

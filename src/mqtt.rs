@@ -1189,6 +1189,7 @@ mod tests {
     }
 
     use crate::{
+        admin::AdminDashboard,
         auth::{AuthConfig, AuthState, Role, SessionData},
         breaker::BreakerContent,
         breaker_detail::{BreakerData, BreakerStore},
@@ -1251,18 +1252,23 @@ mod tests {
             certificate: Arc::from(""),
             breaker_content,
             breaker_detail_store: store,
-            index: Index::new(
-                Routes::default(),
-                std::iter::empty::<crate::index::OptionalEntry>(),
-                &Default::default(),
-                None,
-                Arc::new([]),
-            )
-            .await
-            .unwrap(),
+            index: Index::new(None, Arc::new([]), false, false),
+            admin_dashboard: Arc::new(
+                AdminDashboard::new(
+                    Routes::default(),
+                    std::iter::empty::<crate::admin::OptionalEntry>(),
+                    &Default::default(),
+                    None,
+                    Arc::new([]),
+                )
+                .await
+                .unwrap(),
+            ),
             tailscale_socket: Arc::from(Path::new("/tmp/fake.sock")),
             notes_store: None,
             recipes_store: None,
+            blog_store: None,
+            about_content: None,
             auth_state: Some(Arc::new(auth_state)),
             mqtt_state: Some(mqtt_state),
             log_config: None,
@@ -1352,10 +1358,10 @@ mod tests {
         let state = state_with_mqtt().await;
         let token = insert_admin_session(&state).await;
         let app = Router::new()
-            .route("/mqtt", get(mqtt_page_route))
+            .route("/admin/mqtt", get(mqtt_page_route))
             .with_state(state);
         let req = Request::builder()
-            .uri("/mqtt")
+            .uri("/admin/mqtt")
             .header("cookie", format!("green_session={token}"))
             .body(Body::empty())
             .unwrap();
@@ -1437,18 +1443,23 @@ mod tests {
             certificate: Arc::from(""),
             breaker_content: Arc::new(BreakerContent::new(store.as_ref())),
             breaker_detail_store: store,
-            index: Index::new(
-                Routes::default(),
-                std::iter::empty::<crate::index::OptionalEntry>(),
-                &Default::default(),
-                None,
-                Arc::new([]),
-            )
-            .await
-            .unwrap(),
+            index: Index::new(None, Arc::new([]), false, false),
+            admin_dashboard: Arc::new(
+                AdminDashboard::new(
+                    Routes::default(),
+                    std::iter::empty::<crate::admin::OptionalEntry>(),
+                    &Default::default(),
+                    None,
+                    Arc::new([]),
+                )
+                .await
+                .unwrap(),
+            ),
             tailscale_socket: Arc::from(Path::new("/tmp/fake.sock")),
             notes_store: None,
             recipes_store: None,
+            blog_store: None,
+            about_content: None,
             auth_state: None,
             mqtt_state: Some(mqtt_state),
             log_config: None,
@@ -1494,7 +1505,7 @@ struct MqttPage {
     nav_links: Arc<[NavLink]>,
 }
 
-/// GET `/mqtt` — renders the MQTT live-feed page (admin only).
+/// GET `/admin/mqtt` — renders the MQTT live-feed page (admin only).
 pub async fn mqtt_page_route(
     user: AdminUser,
     State(nav_links): State<Arc<[NavLink]>>,
@@ -1662,7 +1673,7 @@ fn build_sse_stream(
     })
 }
 
-/// GET `/api/mqtt/stream` — SSE stream of live MQTT messages (admin only).
+/// GET `/admin/api/mqtt/stream` — SSE stream of live MQTT messages (admin only).
 pub async fn mqtt_stream_route(
     _user: AdminUser,
     Mqtt(mqtt): Mqtt,
@@ -1684,7 +1695,7 @@ pub struct MqttPublishRequest {
     pub payload: String,
 }
 
-/// POST `/api/mqtt/publish` — publish a message to the broker (admin only).
+/// POST `/admin/api/mqtt/publish` — publish a message to the broker (admin only).
 pub async fn publish_route(
     _user: AdminUser,
     Mqtt(mqtt): Mqtt,
@@ -1712,7 +1723,7 @@ pub struct DeviceMessagesQuery {
     pub device: String,
 }
 
-/// GET `/api/mqtt/device-messages` — returns recent ring-buffer messages for one device
+/// GET `/admin/api/mqtt/device-messages` — returns recent ring-buffer messages for one device
 /// as pre-rendered HTML card fragments (admin only; no DB required).
 pub async fn device_messages_route(
     _user: AdminUser,
@@ -1789,7 +1800,7 @@ struct MqttDevicesPage {
     nav_links: Arc<[NavLink]>,
 }
 
-/// GET `/mqtt/devices` — MQTT device inventory table (admin only).
+/// GET `/admin/mqtt/devices` — MQTT device inventory table (admin only).
 pub async fn mqtt_devices_route(
     user: AdminUser,
     AuthDb(db): AuthDb,

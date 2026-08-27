@@ -69,6 +69,7 @@ mod tests {
     /// Minimal `ServerState` for handler tests that require state but don't use it.
     async fn minimal_state() -> ServerState {
         use crate::{
+            admin::AdminDashboard,
             breaker,
             breaker_detail::{BreakerData, BreakerStore},
             index::Index,
@@ -94,18 +95,23 @@ mod tests {
             certificate: Arc::from(""),
             breaker_content,
             breaker_detail_store: store,
-            index: Index::new(
-                Routes::default(),
-                std::iter::empty::<crate::index::OptionalEntry>(),
-                &HashSet::new(),
-                None,
-                Arc::new([]),
-            )
-            .await
-            .unwrap(),
+            index: Index::new(None, Arc::new([]), false, false),
+            admin_dashboard: Arc::new(
+                AdminDashboard::new(
+                    Routes::default(),
+                    std::iter::empty::<crate::admin::OptionalEntry>(),
+                    &HashSet::new(),
+                    None,
+                    Arc::new([]),
+                )
+                .await
+                .unwrap(),
+            ),
             tailscale_socket: Arc::from(std::path::Path::new("/run/tailscale/tailscaled.sock")),
             notes_store: None,
             recipes_store: None,
+            blog_store: None,
+            about_content: None,
             auth_state: None,
             mqtt_state: None,
             log_config: None,

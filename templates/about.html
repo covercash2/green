@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+
+{% block styles %}
+<link rel="stylesheet" href="/assets/css/about.css?v={{ version }}">
+{% endblock %}
+
+{% block title %}about{% endblock %}
+
+{% block content %}
+<a href="/" class="leet-link">&larr; back</a>
+<div class="prose about-content">
+    {{ content|safe }}
+</div>
+{% endblock %}
