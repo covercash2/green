@@ -194,20 +194,24 @@ export def "green logs tail" [
   if $raw {
     tail --follow $log_file
   } else {
-    (tail --follow $log_file
-    | lines
-    | each {|entry|
-        try {
-          let log = ($entry | from json)
-          print $log
-        } catch {
-          log $"[malformed] ($entry)"
-        }
-      }
-    )
+    tail --follow $log_file | format logs
   }
 }
 
 def "complete-addresses" [] {
     [$LOCAL_ADDRESS "http://home.green.chrash.net"]
+}
+
+export def "format logs" [] {
+  ($in
+  | lines
+  | each {|entry|
+      try {
+        let log = ($entry | from json)
+        print $log
+      } catch {
+        log $"[malformed] ($entry)"
+      }
+    }
+  )
 }

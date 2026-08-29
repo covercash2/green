@@ -30,7 +30,7 @@ use std::{
     time::Duration,
 };
 
-use axum::{extract::State, routing::get};
+use axum::{extract::State, http::header, response::IntoResponse, routing::get};
 use breaker_detail::{BreakerData, BreakerDetailStore, BreakerStore};
 use clap::Parser;
 use io::{load_toml_file, read_file};
@@ -583,8 +583,21 @@ async fn health_check() -> &'static str {
     r#"SYSTEM STATUS: ONLINE"#
 }
 
-async fn ca_route(State(state): State<ServerState>) -> String {
-    format!("{}", state.certificate)
+/// Serves the CA cert with headers that make Safari on iOS treat it as an
+/// installable profile (`Settings > General > VPN & Device Management`)
+/// rather than rendering the PEM text inline — `application/x-x509-ca-cert`
+/// is the MIME type iOS's download handler keys off of for this.
+async fn ca_route(State(state): State<ServerState>) -> impl IntoResponse {
+    (
+        [
+            (header::CONTENT_TYPE, "application/x-x509-ca-cert"),
+            (
+                header::CONTENT_DISPOSITION,
+                "attachment; filename=\"green-ca.pem\"",
+            ),
+        ],
+        state.certificate.to_string(),
+    )
 }
 
 /// Command-line arguments.
