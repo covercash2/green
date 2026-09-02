@@ -920,6 +920,32 @@ pub(crate) mod tests {
     }
 
     #[tokio::test]
+    async fn ca_route_returns_downloadable_certificate() {
+        use axum::{body::Body, http::Request};
+        use tower::ServiceExt;
+
+        let app = build_router(minimal_server_state().await);
+        let request = Request::builder()
+            .uri(Route::Certificates.as_str())
+            .body(Body::empty())
+            .unwrap();
+
+        let response = app.oneshot(request).await.unwrap();
+        assert_eq!(
+            response.headers()[header::CONTENT_TYPE],
+            "application/x-x509-ca-cert"
+        );
+        assert_eq!(
+            response.headers()[header::CONTENT_DISPOSITION],
+            "attachment; filename=\"green-ca.pem\""
+        );
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        assert_eq!(body.as_ref(), b"fake-cert");
+    }
+
+    #[tokio::test]
     async fn config_can_be_deserialized() {
         let config_path = PathBuf::from("config.toml");
 
