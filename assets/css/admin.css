@@ -8,13 +8,6 @@
     object-fit: contain;
 }
 
-.leet-h1 {
-    font-size: 3rem;
-    color: var(--color-heading);
-    text-shadow: 0 0 8px var(--color-heading-glow), 0 0 25px var(--color-heading-glow);
-    text-align: center;
-}
-
 .route-icon {
     width: 24px;
     height: 24px;
