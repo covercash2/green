@@ -29,6 +29,16 @@ devices = [
 ]
 notes = "AFCI protected"
 
+[slots."2-left"]
+label = "kitchen outlets"
+amperage = "20A"
+devices = [
+  "kitchen GFCI outlet, right",
+  "kitchen outlet, left",
+  "microwave",
+  "undercabinet lights",
+]
+
 [slots."4-left"]
 label = "kitchen island"
 
