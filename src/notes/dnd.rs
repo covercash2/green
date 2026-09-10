@@ -332,8 +332,9 @@ impl ScanCell {
 ///
 /// The inner store is `None` until the first scan completes. Each scan
 /// atomically replaces the store, so readers always see a consistent
-/// snapshot. At most one scan runs at a time — see [`Self::request_scan`]
-/// and [`Self::force_rescan`].
+/// snapshot. [`Self::request_scan`] coalesces refresh requests so only one
+/// managed scan task is in-flight, with at most one queued follow-up.
+/// [`Self::force_rescan`] replaces that managed task immediately.
 #[derive(Clone, Debug)]
 pub struct NoteVault {
     vault_path: PathBuf,
@@ -365,8 +366,10 @@ impl NoteVault {
         }
     }
 
-    /// Force a fresh background scan right now, aborting any scan already in
-    /// flight (and any queued follow-up, which this restart supersedes).
+    /// Force a fresh background scan right now, aborting any managed scan task
+    /// already in flight (and any queued follow-up, which this restart
+    /// supersedes). This does not cooperatively cancel blocking scan work
+    /// already executing inside that task.
     pub fn force_rescan(&self) {
         let mut slot = self.scan.lock();
         let (previous, generation) = slot.on_force();
@@ -885,10 +888,9 @@ mod tests {
     }
 
     /// Stands in for "a scan is running" in `ScanSlot` tests below, which
-    /// only inspect struct fields and never actually await this — its body
-    /// never needs to run.
+    /// only inspect struct fields and never actually await this.
     fn dummy_handle() -> JoinHandle<()> {
-        tokio::spawn(std::future::pending())
+        tokio::spawn(async {})
     }
 
     #[tokio::test]

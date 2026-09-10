@@ -60,7 +60,7 @@ def main [deno_dir: string] {
                 # command-substitution reconstruction can (which silently
                 # swallows a trailing blank line), and that body is exactly
                 # what deno.lock's integrity hash is checked against.
-                let prefix = (($parts | drop 1 | str join "\n") + "\n")
+                let prefix = (($parts | first (($parts | length) - 1) | str join "\n") + "\n")
                 let json = ($last_line | str substring 21.. | from json)
                 let headers = (
                     $json.headers | transpose key val | where key in $allowed
