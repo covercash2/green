@@ -45,9 +45,7 @@ devices = [
 
 [slots."8-right"]
 label = "laundry"
-devices = [
-  "washer",
-]
+devices = ["washer"]
 notes = "standard outlet"
 
 [slots."9-right"]
@@ -56,11 +54,7 @@ notes = "double-check: was labelled from old panel map, not verified in person"
 
 [slots."10-right"]
 label = "downstairs hallway lights"
-devices = [
-  "laundry room light",
-  "hallway light",
-  "bathroom light",
-]
+devices = ["laundry room light", "hallway light", "bathroom light"]
 
 [slots."11-left"]
 label = "X"
