@@ -57,4 +57,3 @@ name = "Z-Wave"
 [routes.homeassistant]
 url = "homeassistant.green.chrash.net"
 description = "Home Assistant for home automation"
-
