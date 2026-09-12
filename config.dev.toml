@@ -12,8 +12,13 @@ app_log = "logs/logs.ndjson"
 error_log = "logs/errors.log"
 
 [auth]
-rp_id = "dev.green.chrash.net"
-rp_origin = "https://dev.green.chrash.net"
+# Bound to the tailnet hostname so passkeys work from other tailnet devices
+# (e.g. an iPad) via `tailscale serve` — see `green serve` in scripts/green.nu
+# and "Remote access over Tailscale" in docs/development.md. WebAuthn requires a secure
+# context, so this only works over the `https://` tailnet URL, not plain
+# `http://hoss:10000`.
+rp_id = "hoss.faun-truck.ts.net"
+rp_origin = "https://hoss.faun-truck.ts.net"
 # Placeholder — real URL is supplied at runtime via GREEN_DB_URL (set in secrets.toml).
 db_url = "postgres://green:placeholder@localhost/green"
 admin_users = ["chrash"]

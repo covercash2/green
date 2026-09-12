@@ -9,12 +9,18 @@
 #   nu scripts/dev.nu          — start server and tail errors (from Zellij)
 #   green restart              — rebuild and restart after making changes
 #   green stop                 — shut the server down
+#   green serve                — publish over Tailscale HTTPS (see below, and docs/development.md)
 #
 # Log files (rotated to <file>.1 when > 5 MB on start, otherwise truncated):
 #   logs/logs.ndjson   — structured JSON tracing output from the green binary (stdout)
 #   logs/errors.log    — cargo build output, panics, and server stderr
 
 const LOCAL_ADDRESS = "http://localhost:10000"
+
+# Tailnet MagicDNS hostname for this machine, published by `green serve` via
+# `tailscale serve`. Must match `[auth] rp_id`/`rp_origin` in config.dev.toml —
+# see "Remote access over Tailscale" in docs/development.md.
+const TAILNET_ADDRESS = "https://hoss.faun-truck.ts.net"
 
 # Records server startup metadata between commands.
 export const watch_file = "./.watch_state.toml"
@@ -167,6 +173,40 @@ export def "green restart" [
     green start --config-path $config_path
 }
 
+# Publish the dev server over the tailnet with HTTPS, so it's reachable from
+# other tailnet devices (e.g. an iPad) at https://hoss.faun-truck.ts.net.
+#
+# Wraps `tailscale serve`, which reverse-proxies that tailnet-only HTTPS URL
+# to localhost:<port> using a cert Tailscale provisions automatically. This
+# is required for passkey auth from another device: WebAuthn needs a secure
+# context, so plain http://hoss:10000 can only ever log in from localhost.
+#
+# One-time setup so this doesn't prompt for a password every time:
+#   sudo tailscale set --operator=($env.USER)
+#
+# `[auth] rp_id`/`rp_origin` in config.dev.toml are already pinned to the
+# tailnet hostname above, so no config changes are needed to pair with this —
+# just `green serve`, then hit $TAILNET_ADDRESS from another tailnet device.
+export def "green serve" [
+    --config-path: path = "./config.dev.toml"  # config file to read the port from
+] {
+    let port = (open $config_path | get port)
+    tailscale serve --bg --https=443 $"localhost:($port)"
+    log $"serving on ($TAILNET_ADDRESS) -> localhost:($port)"
+    green serve status
+}
+
+# Tear down the tailnet HTTPS proxy started by `green serve`.
+export def "green serve stop" [] {
+    tailscale serve reset
+    log "tailnet serve config cleared"
+}
+
+# Show the current `tailscale serve` configuration for this machine.
+export def "green serve status" [] {
+    tailscale serve status
+}
+
 # Fetch the index page from the running dev server.
 export def "green index" [
     address: string@"complete-addresses" = $LOCAL_ADDRESS
@@ -199,7 +239,7 @@ export def "green logs tail" [
 }
 
 def "complete-addresses" [] {
-    [$LOCAL_ADDRESS "http://home.green.chrash.net"]
+    [$LOCAL_ADDRESS $TAILNET_ADDRESS "http://home.green.chrash.net"]
 }
 
 export def "format logs" [] {
