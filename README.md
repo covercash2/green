@@ -32,13 +32,19 @@ just install-hooks
 use scripts/green.nu *
 green start
 
+# Optional: publish over Tailscale HTTPS to test from another device (e.g. an
+# iPad) — needed for passkey auth, which requires a secure context.
+# See docs/development.md -> "Remote access over Tailscale" for one-time setup.
+green serve
+
 # Run tests
 just test-all
 ```
 
 ## Configuration
 
-See `config.toml.example` for a full annotated example.
+See `config.toml.example` for a full annotated example, and
+[docs/configuration.md](docs/configuration.md) for the full reference.
 Runtime secrets go in `secrets.toml` (gitignored) and are injected as env vars:
 
 | Env var | Overrides |
@@ -56,11 +62,15 @@ just build-js      # compile src/js/*.ts → assets/js/*.js
 just lint-js       # biome lint
 ```
 
-See `CLAUDE.md` for detailed architecture notes, module structure, and the JS pipeline convention.
+See [docs/development.md](docs/development.md) for the dev server lifecycle
+(detached process, log files, remote access over Tailscale), and
+[docs/architecture.md](docs/architecture.md) for module structure and the JS
+pipeline convention.
 
 ## Deployment
 
-A NixOS module is provided at `nixosModules.default`. See `CLAUDE.md` → *NixOS Module* for options.
+A NixOS module is provided at `nixosModules.default`. See
+[docs/nixos-module.md](docs/nixos-module.md) for options.
 
 ## Tech stack
 
