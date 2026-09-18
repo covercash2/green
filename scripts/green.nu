@@ -191,15 +191,15 @@ export def "green serve" [
     --config-path: path = "./config.dev.toml"  # config file to read the port from
 ] {
     let port = (open $config_path | get port)
-    tailscale serve --bg --https=443 $"localhost:($port)"
+    tailscale serve --bg --https=443 $"http://localhost:($port)"
     log $"serving on ($TAILNET_ADDRESS) -> localhost:($port)"
     green serve status
 }
 
-# Tear down the tailnet HTTPS proxy started by `green serve`.
+# Tear down only the HTTPS proxy started by `green serve`.
 export def "green serve stop" [] {
-    tailscale serve reset
-    log "tailnet serve config cleared"
+    tailscale serve --https=443 off
+    log "tailnet HTTPS proxy removed from port 443"
 }
 
 # Show the current `tailscale serve` configuration for this machine.

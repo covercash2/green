@@ -48,8 +48,8 @@ Both files are truncated on every `green start` so `tail -f` always reflects the
 
 | File | Contents |
 |------|----------|
-| `logs.ndjson` | Structured JSON tracing output from the running server (stdout) |
-| `errors.log` | `cargo build` output, panics, and server stderr |
+| `logs/logs.ndjson` | Structured JSON tracing output from the running server (stdout) |
+| `logs/errors.log` | `cargo build` output, panics, and server stderr |
 
 ### Sentinel file
 
@@ -60,8 +60,8 @@ new one; `green stop` removes it.
 ### Typical workflow
 
 ```
-# Initial setup (from the "phone" Zellij session — errors tab runs this automatically):
-nu scripts/dev.nu          # starts server + tails errors.log
+# Initial setup:
+nu scripts/dev.nu          # starts server + tails logs/errors.log
 
 # After editing code:
 nu --no-config-file -c "use scripts/green.nu *; green restart"
@@ -69,18 +69,6 @@ nu --no-config-file -c "use scripts/green.nu *; green restart"
 # Check if the server is up:
 curl http://localhost:10000/healthcheck
 ```
-
-### Zellij "phone" session
-
-The project includes a Zellij layout for remote development from iOS (via Termion/SSH):
-```
-zellij --session phone --layout scripts/phone.kdl
-```
-
-Three tabs:
-- **claude** — Claude Code (focused by default)
-- **errors** — runs `nu scripts/dev.nu`; starts the server then tails `errors.log`
-- **logs** — `tail -f logs.ndjson` (structured tracing from the running binary)
 
 ### Remote access over Tailscale
 
@@ -95,9 +83,9 @@ real HTTPS on the tailnet, publish the dev server with `tailscale serve`:
 
 ```nu
 use scripts/green.nu *
-green serve           # -> https://hoss.faun-truck.ts.net  (proxies to localhost:<port>)
+green serve           # -> https://hoss.faun-truck.ts.net  (proxies to http://localhost:<port>)
 green serve status    # show current tailscale serve config
-green serve stop      # tear it down (tailscale serve reset)
+green serve stop      # remove only this HTTPS proxy from port 443
 ```
 
 `tailscale serve` needs root by default. Run this once so it doesn't prompt
