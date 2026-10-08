@@ -59,9 +59,42 @@ struct BlogFrontmatter {
     #[serde(default, deserialize_with = "deserialize_tags")]
     tags: Vec<String>,
     date: Option<String>,
+    /// Creation timestamp (e.g. `2026-01-15T09:32`) that a vault-wide plugin
+    /// stamps onto every note automatically. Used as the post date when
+    /// `date` isn't set explicitly — see [`resolve_date_str`].
+    created: Option<String>,
+    /// Last-modified timestamp, stamped by the same plugin on every edit.
+    /// Shown on the post page alongside the publish date.
+    updated: Option<String>,
     summary: Option<String>,
+    /// Only `Some(false)` publishes a post. Absent — or explicit `true` —
+    /// means draft. The vault's tagging plugin applies `tags`/`created` to
+    /// every note automatically, so a note tagged `blog` could otherwise go
+    /// live the moment it's created; requiring an explicit opt-out keeps
+    /// publishing a deliberate action.
     #[serde(default)]
-    draft: bool,
+    draft: Option<bool>,
+}
+
+/// A post is published only once its author explicitly sets `draft: false`.
+/// Absent, or explicit `true`, means draft — see [`BlogFrontmatter::draft`].
+fn is_published(fm: &BlogFrontmatter) -> bool {
+    fm.tags.iter().any(|t| t == "blog") && fm.draft == Some(false)
+}
+
+/// Drop the time-of-day portion of a plugin-stamped timestamp
+/// (`2026-01-15T09:32` -> `2026-01-15`), leaving a bare date string.
+fn date_only(timestamp: &str) -> &str {
+    timestamp.split('T').next().unwrap_or(timestamp)
+}
+
+/// Resolve the frontmatter string to parse as the post's date: `date` if set
+/// explicitly, otherwise the date portion of the plugin-supplied `created`
+/// timestamp.
+fn resolve_date_str(fm: &BlogFrontmatter) -> Option<String> {
+    fm.date
+        .clone()
+        .or_else(|| fm.created.as_deref().map(date_only).map(str::to_owned))
 }
 
 /// A fully-parsed and rendered blog post. Posts are always public — no
@@ -71,6 +104,9 @@ pub struct BlogPost {
     pub slug: Slug,
     pub title: String,
     pub date: PostDate,
+    /// Last-modified date, shown on the post page. `None` if the note has no
+    /// `updated` frontmatter field.
+    pub updated: Option<PostDate>,
     pub summary: Option<String>,
     pub html: RenderedHtml,
 }
@@ -136,9 +172,7 @@ impl BlogStore {
             .filter_map(|path| {
                 let note: obsidian::ParsedNote<BlogFrontmatter> =
                     obsidian::parse_note(path).ok()?;
-                let is_published_post =
-                    note.frontmatter.tags.iter().any(|t| t == "blog") && !note.frontmatter.draft;
-                is_published_post.then_some(note.slug)
+                is_published(&note.frontmatter).then_some(note.slug)
             })
             .collect();
 
@@ -154,7 +188,7 @@ impl BlogStore {
                     obsidian::VaultError::NotDirectory(p) => BlogStoreError::VaultNotDirectory(p),
                 })?;
 
-            if !note.frontmatter.tags.iter().any(|t| t == "blog") || note.frontmatter.draft {
+            if !is_published(&note.frontmatter) {
                 continue;
             }
 
@@ -164,16 +198,25 @@ impl BlogStore {
                 .file_stem()
                 .and_then(|s| s.to_str())
                 .unwrap_or_default();
-            let title = fm.title.unwrap_or_else(|| stem.replace(['-', '_'], " "));
-
-            let date_str = fm
-                .date
+            let date_str = resolve_date_str(&fm)
                 .ok_or_else(|| BlogStoreError::MissingDate { path: path.clone() })?;
+            let title = fm.title.unwrap_or_else(|| stem.replace(['-', '_'], " "));
             let date =
                 PostDate::parse(&date_str).map_err(|source| BlogStoreError::InvalidDate {
                     path: path.clone(),
                     source,
                 })?;
+            let updated = fm
+                .updated
+                .as_deref()
+                .map(date_only)
+                .map(|s| {
+                    PostDate::parse(s).map_err(|source| BlogStoreError::InvalidDate {
+                        path: path.clone(),
+                        source,
+                    })
+                })
+                .transpose()?;
 
             let rendered = render_markdown(&note.body);
             let html = RenderedHtml::from_html(obsidian::resolve_wiki_links(
@@ -187,6 +230,7 @@ impl BlogStore {
                 slug: slug.clone(),
                 title,
                 date,
+                updated,
                 summary: fm.summary,
                 html,
             };
@@ -260,6 +304,7 @@ pub struct BlogDetailPage {
     pub version: &'static str,
     pub title: String,
     pub date: PostDate,
+    pub updated: Option<PostDate>,
     pub summary: Option<String>,
     /// Pre-rendered HTML — safe for `|safe` in the template.
     pub content: String,
@@ -294,6 +339,7 @@ pub async fn blog_detail_route(
         version: VERSION,
         title: post.title.clone(),
         date: post.date,
+        updated: post.updated,
         summary: post.summary.clone(),
         content: post.html.as_str().to_owned(),
         auth_user,
@@ -341,6 +387,47 @@ mod tests {
     }
 
     #[test]
+    fn blog_store_excludes_notes_without_a_draft_field() {
+        let store = BlogStore::scan(&fixture_vault()).expect("scan should succeed");
+        assert!(
+            !store.entries.iter().any(|e| e.title == "No Draft Field"),
+            "a blog-tagged note with no draft field must stay unpublished"
+        );
+    }
+
+    #[test]
+    fn blog_store_falls_back_to_created_for_date() {
+        let store = BlogStore::scan(&fixture_vault()).expect("scan should succeed");
+        let entry = store
+            .entries
+            .iter()
+            .find(|e| e.title == "Created Fallback Post")
+            .expect("post with no explicit date, falling back to created, should be published");
+        assert_eq!(entry.date.to_string(), "2026-01-10");
+    }
+
+    #[test]
+    fn blog_store_parses_updated_field() {
+        let store = BlogStore::scan(&fixture_vault()).expect("scan should succeed");
+        let post = store
+            .get("created-fallback-post")
+            .expect("post should be in the store");
+        assert_eq!(
+            post.updated.map(|d| d.to_string()),
+            Some("2026-01-12".to_string())
+        );
+    }
+
+    #[test]
+    fn blog_store_updated_is_none_without_frontmatter_field() {
+        let store = BlogStore::scan(&fixture_vault()).expect("scan should succeed");
+        let post = store
+            .get("first-post")
+            .expect("post should be in the store");
+        assert_eq!(post.updated, None);
+    }
+
+    #[test]
     fn blog_store_sorted_newest_first() {
         let store = BlogStore::scan(&fixture_vault()).expect("scan should succeed");
         let dates: Vec<PostDate> = store.entries.iter().map(|e| e.date).collect();
@@ -369,7 +456,7 @@ mod tests {
         assert!(fm.tags.contains(&"blog".to_string()));
         assert_eq!(fm.date.as_deref(), Some("2026-01-15"));
         assert_eq!(fm.summary.as_deref(), Some("A test post"));
-        assert!(!fm.draft);
+        assert_eq!(fm.draft, None);
         assert_eq!(rest, "Body.\n");
     }
 
@@ -377,7 +464,66 @@ mod tests {
     fn parse_blog_fm_draft_flag() {
         let raw = "---\ntags: [blog]\ndraft: true\n---\nBody.\n";
         let (fm, _rest) = obsidian::parse_frontmatter::<BlogFrontmatter>(raw);
-        assert!(fm.draft);
+        assert_eq!(fm.draft, Some(true));
+    }
+
+    #[test]
+    fn parse_blog_fm_draft_false_publishes() {
+        let raw = "---\ntags: [blog]\ndraft: false\n---\nBody.\n";
+        let (fm, _rest) = obsidian::parse_frontmatter::<BlogFrontmatter>(raw);
+        assert_eq!(fm.draft, Some(false));
+        assert!(is_published(&fm));
+    }
+
+    #[test]
+    fn is_published_requires_explicit_draft_false() {
+        let tagged = BlogFrontmatter {
+            tags: vec!["blog".to_string()],
+            ..Default::default()
+        };
+        assert!(
+            !is_published(&tagged),
+            "a blog-tagged note with no draft field must stay unpublished"
+        );
+
+        let explicit_draft = BlogFrontmatter {
+            tags: vec!["blog".to_string()],
+            draft: Some(true),
+            ..Default::default()
+        };
+        assert!(!is_published(&explicit_draft));
+
+        let published = BlogFrontmatter {
+            tags: vec!["blog".to_string()],
+            draft: Some(false),
+            ..Default::default()
+        };
+        assert!(is_published(&published));
+    }
+
+    #[test]
+    fn resolve_date_str_prefers_explicit_date() {
+        let fm = BlogFrontmatter {
+            date: Some("2026-02-02".to_string()),
+            created: Some("2020-01-01T00:00".to_string()),
+            ..Default::default()
+        };
+        assert_eq!(resolve_date_str(&fm), Some("2026-02-02".to_string()));
+    }
+
+    #[test]
+    fn resolve_date_str_falls_back_to_created() {
+        let fm = BlogFrontmatter {
+            created: Some("2026-01-15T09:32".to_string()),
+            ..Default::default()
+        };
+        assert_eq!(resolve_date_str(&fm), Some("2026-01-15".to_string()));
+    }
+
+    #[test]
+    fn resolve_date_str_none_when_both_absent() {
+        let fm = BlogFrontmatter::default();
+        assert_eq!(resolve_date_str(&fm), None);
     }
 
     async fn make_state_without_blog() -> ServerState {

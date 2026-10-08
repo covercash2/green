@@ -10,6 +10,9 @@
 <a href="/blog" class="leet-link">&larr; blog</a>
 <div class="blog-meta">
     <span class="blog-date">{{ date }}</span>
+    {% if let Some(updated) = updated %}
+    <span class="blog-updated">updated {{ updated }}</span>
+    {% endif %}
 </div>
 <h1 class="leet-h1">{{ title }}</h1>
 {% if let Some(summary) = summary %}
