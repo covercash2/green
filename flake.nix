@@ -633,6 +633,13 @@
               wantedBy = [ "multi-user.target" ];
               after = [ "network.target" ];
 
+              # Give up after 5 restarts within 2 minutes instead of
+              # restarting forever (Restart=always below) — a bad config
+              # (e.g. a vault path that doesn't exist) fails the unit
+              # visibly rather than crash-looping indefinitely.
+              startLimitIntervalSec = 120;
+              startLimitBurst = 5;
+
               serviceConfig = {
                 # Pass CLI arguments based on configuration options
                 ExecStart = ''

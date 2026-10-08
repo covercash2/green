@@ -117,6 +117,32 @@ cargo run -- --config-path /path/to/config.toml
 cargo build --release
 ```
 
+## Config Validation
+
+`cargo xtask check-config [CONFIG_PATH]` loads a config file and scans every
+configured content path (CA cert, recipe/blog vaults, about-me file) without
+starting the server. It calls `green::check_config` directly — the `green`
+crate is split into `lib.rs` (the application) and a thin `main.rs`
+(the CLI entrypoint), so `xtask` links against the library and runs the exact
+same scan calls `ServerState::new` uses at real startup, in-process. A config
+that passes here is guaranteed to pass there too.
+
+```bash
+cargo xtask check-config config.toml
+```
+
+Run this against a host's config before `nixos-rebuild switch` when changing
+`vaultPath`/`recipeVaultPath`/`blogVaultPath`/`aboutPath` — it catches a typo'd
+or not-yet-created vault directory before the switch activates a unit that
+would otherwise crash-loop on it (the systemd unit now gives up after 5
+restarts in 2 minutes rather than retrying forever — see `flake.nix`'s
+`startLimitIntervalSec`/`startLimitBurst`).
+
+Note: `vaultPath` (the D&D notes vault) scans lazily in the background at real
+startup and never fails it, so `check-config` doesn't check it either —
+checking it here would make the command fail on a case that wouldn't actually
+block the server.
+
 ## Testing
 ```bash
 # Run all Rust tests
