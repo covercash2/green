@@ -3,6 +3,11 @@ name = "green"
 version = "0.1.0"
 edition = "2024"
 
+[workspace]
+members = ["xtask"]
+# Keep `cargo build`/`run`/`test` with no `-p` targeting just the server, not xtask.
+default-members = ["."]
+
 [dependencies]
 askama = "0.14.0"
 axum = { version = "0.8.4", features = ["json"] }
