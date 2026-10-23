@@ -6,7 +6,7 @@
 
 use std::{env, path::PathBuf, process::ExitCode};
 
-use green::{Config, check_config};
+use green::{Config, check_config, setup_tracing};
 
 #[tokio::main]
 async fn main() -> ExitCode {
@@ -43,6 +43,11 @@ async fn run_check_config(config_path: Option<String>) -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
+
+    if let Err(err) = setup_tracing(&config.log_level) {
+        eprintln!("{err}");
+        return ExitCode::FAILURE;
+    }
 
     match check_config(&config).await {
         Ok(()) => ExitCode::SUCCESS,

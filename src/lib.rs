@@ -861,6 +861,100 @@ pub async fn run(config: Config) -> Result<(), Error> {
 pub(crate) mod tests {
     use super::*;
 
+    fn config_for_check(ca_path: &Path, content_paths: &[(&str, &Path)]) -> Config {
+        let mut values = toml::map::Map::new();
+        let _ = values.insert(
+            "ca_path".to_string(),
+            toml::Value::String(ca_path.to_string_lossy().into_owned()),
+        );
+        let _ = values.insert("port".to_string(), toml::Value::Integer(0));
+        for (name, path) in content_paths {
+            let _ = values.insert(
+                (*name).to_string(),
+                toml::Value::String(path.to_string_lossy().into_owned()),
+            );
+        }
+        toml::Value::Table(values).try_into().unwrap()
+    }
+
+    #[tokio::test]
+    async fn check_config_accepts_valid_content_paths_and_ignores_notes_vault() {
+        let temp = tempfile::tempdir().unwrap();
+        let ca_path = temp.path().join("ca.pem");
+        tokio::fs::write(&ca_path, "test certificate")
+            .await
+            .unwrap();
+        let recipe_path = temp.path().join("recipes");
+        let blog_path = temp.path().join("blog");
+        tokio::fs::create_dir(&recipe_path).await.unwrap();
+        tokio::fs::create_dir(&blog_path).await.unwrap();
+        let about_path = temp.path().join("about.md");
+        tokio::fs::write(&about_path, "# About").await.unwrap();
+        let vault_path = temp.path().join("notes-vault-does-not-exist");
+
+        let config = config_for_check(
+            &ca_path,
+            &[
+                ("recipe_vault_path", &recipe_path),
+                ("blog_vault_path", &blog_path),
+                ("about_path", &about_path),
+                ("vault_path", &vault_path),
+            ],
+        );
+
+        check_config(&config).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn check_config_accepts_disabled_optional_content_paths() {
+        let temp = tempfile::tempdir().unwrap();
+        let ca_path = temp.path().join("ca.pem");
+        tokio::fs::write(&ca_path, "test certificate")
+            .await
+            .unwrap();
+        let config = config_for_check(&ca_path, &[]);
+
+        check_config(&config).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn check_config_rejects_missing_ca_file() {
+        let temp = tempfile::tempdir().unwrap();
+        let config = config_for_check(&temp.path().join("missing-ca.pem"), &[]);
+
+        assert!(matches!(
+            check_config(&config).await,
+            Err(Error::Io(io::IoError::FileRead { .. }))
+        ));
+    }
+
+    #[tokio::test]
+    async fn check_config_propagates_configured_content_path_errors() {
+        let temp = tempfile::tempdir().unwrap();
+        let ca_path = temp.path().join("ca.pem");
+        tokio::fs::write(&ca_path, "test certificate")
+            .await
+            .unwrap();
+
+        for (name, path) in [
+            ("recipe_vault_path", temp.path().join("missing-recipes")),
+            ("blog_vault_path", temp.path().join("missing-blog")),
+            ("about_path", temp.path().join("missing-about.md")),
+        ] {
+            let config = config_for_check(&ca_path, &[(name, &path)]);
+            let result = check_config(&config).await;
+            assert!(
+                matches!(
+                    (name, result),
+                    ("recipe_vault_path", Err(Error::RecipeStore { .. }))
+                        | ("blog_vault_path", Err(Error::BlogStore { .. }))
+                        | ("about_path", Err(Error::Io(io::IoError::FileRead { .. })))
+                ),
+                "check_config did not propagate the failure for {name}"
+            );
+        }
+    }
+
     /// Build a minimal `ServerState` suitable for handler unit tests.
     ///
     /// All optional features (notes, recipes, auth, mqtt, logs, systemd) are
