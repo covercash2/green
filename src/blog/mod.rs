@@ -146,6 +146,12 @@ pub enum BlogStoreError {
         path: PathBuf,
         source: time::error::Parse,
     },
+
+    #[error("invalid `updated` in post `{path}`: {source}")]
+    InvalidUpdatedDate {
+        path: PathBuf,
+        source: time::error::Parse,
+    },
 }
 
 impl BlogStore {
@@ -211,7 +217,7 @@ impl BlogStore {
                 .as_deref()
                 .map(date_only)
                 .map(|s| {
-                    PostDate::parse(s).map_err(|source| BlogStoreError::InvalidDate {
+                    PostDate::parse(s).map_err(|source| BlogStoreError::InvalidUpdatedDate {
                         path: path.clone(),
                         source,
                     })
@@ -425,6 +431,22 @@ mod tests {
             .get("first-post")
             .expect("post should be in the store");
         assert_eq!(post.updated, None);
+    }
+
+    #[test]
+    fn blog_store_reports_invalid_updated_field() {
+        let vault = tempfile::tempdir().expect("temporary vault should be created");
+        std::fs::write(
+            vault.path().join("invalid-updated.md"),
+            "---\ntags: [blog]\ndraft: false\ndate: 2026-01-10\nupdated: invalid\n---\nBody.\n",
+        )
+        .expect("post should be written");
+
+        let error = BlogStore::scan(vault.path()).expect_err("invalid updated date should fail");
+        assert!(
+            error.to_string().contains("invalid `updated`"),
+            "error should identify the invalid frontmatter field: {error}"
+        );
     }
 
     #[test]
